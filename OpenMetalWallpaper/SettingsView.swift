@@ -18,7 +18,7 @@ struct SettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("偏好设置").font(.headline)
+                Text(NSLocalizedString("preferences_title", comment: "")).font(.headline)
                 Spacer()
             }
             .padding()
@@ -31,7 +31,7 @@ struct SettingsView: View {
                     HStack {
                         Image(systemName: "folder")
                         VStack(alignment: .leading) {
-                            Text("默认存储位置")
+                            Text(NSLocalizedString("default_storage_location", comment: ""))
                             Text(library.storageURL.path)
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -39,48 +39,48 @@ struct SettingsView: View {
                                 .truncationMode(.middle)
                         }
                         Spacer()
-                        Button("更改...") {
+                        Button(NSLocalizedString("change_button", comment: "")) {
                             chooseStorageFolder()
                         }
                     }
                 } header: {
-                    Text("壁纸库")
+                    Text(NSLocalizedString("wallpaper_library_header", comment: ""))
                 }
                 
                 Section {
-                    Toggle("预加载视频到内存", isOn: $loadToMemory)
-                        .help("减少磁盘IO，但增加内存占用")
-                    Text("启用此选项可消除循环播放时的卡顿。")
+                    Toggle(NSLocalizedString("preload_video_memory", comment: ""), isOn: $loadToMemory)
+                        .help(NSLocalizedString("preload_help", comment: ""))
+                    Text(NSLocalizedString("preload_description", comment: ""))
                         .font(.caption).foregroundColor(.secondary)
                 } header: {
-                    Text("性能")
+                    Text(NSLocalizedString("performance_header", comment: ""))
                 }
                 
                 Section {
-                    Toggle("其他应用全屏/活动时暂停", isOn: $pauseOnAppFocus)
+                    Toggle(NSLocalizedString("pause_on_app_focus", comment: ""), isOn: $pauseOnAppFocus)
                 } header: {
-                    Text("自动化")
+                    Text(NSLocalizedString("automation_header", comment: ""))
                 }
                 
                 Section {
-                    Toggle("启动时自动检查更新", isOn: $checkUpdateOnStartup)
+                    Toggle(NSLocalizedString("auto_check_updates", comment: ""), isOn: $checkUpdateOnStartup)
                     HStack {
-                        Text("当前版本: \(AppInfo.fullVersionString)").foregroundColor(.secondary)
+                        Text(String(format: NSLocalizedString("current_version_text", comment: ""), AppInfo.fullVersionString)).foregroundColor(.secondary)
                         Spacer()
-                        Button("检查更新") { UpdateChecker.shared.checkForUpdates(userInitiated: true) }
+                        Button(NSLocalizedString("check_updates_button", comment: "")) { UpdateChecker.shared.checkForUpdates(userInitiated: true) }
                     }
                 } header: {
-                    Text("更新")
+                    Text(NSLocalizedString("updates_header", comment: ""))
                 }
                 
                 Section {
                     HStack {
                         Text(AppInfo.appName)
                         Spacer()
-                        Text("AGPLv3 License").foregroundColor(.secondary)
+                        Text(NSLocalizedString("license_text", comment: "")).foregroundColor(.secondary)
                     }
                 } header: {
-                    Text("关于")
+                    Text(NSLocalizedString("about_header", comment: ""))
                 }
             }
             .formStyle(.grouped)
@@ -90,7 +90,7 @@ struct SettingsView: View {
             
             HStack {
                 Spacer()
-                Button("完成") {
+                Button(NSLocalizedString("done_button", comment: "")) {
                     WallpaperEngine.shared.updateSettings()
                     presentationMode.wrappedValue.dismiss()
                 }
@@ -106,7 +106,7 @@ struct SettingsView: View {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "选择一个新的文件夹来存储导入的壁纸"
+        panel.message = NSLocalizedString("choose_storage_folder_message", comment: "")
         
         panel.begin { response in
             if response == .OK, let url = panel.url {

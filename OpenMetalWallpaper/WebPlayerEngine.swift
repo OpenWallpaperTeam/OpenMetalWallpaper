@@ -84,7 +84,7 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKUIDele
         self.schemeHandler = handler
         config.setURLSchemeHandler(handler, forURLScheme: "omw-local")
         config.mediaTypesRequiringUserActionForPlayback = []
-        try? config.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
         
         let css = "html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; } ::-webkit-scrollbar { display: none; }"
         

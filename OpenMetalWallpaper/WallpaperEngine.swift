@@ -29,10 +29,10 @@ enum WallpaperScaleMode: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
     var label: String {
         switch self {
-        case .fill: return "填充 (Cover)"
-        case .fit: return "适应 (Fit)"
-        case .stretch: return "拉伸 (Stretch)"
-        case .custom: return "自定义 (Custom)"
+        case .fill: return NSLocalizedString("fill_mode", comment: "")
+        case .fit: return NSLocalizedString("fit_mode", comment: "")
+        case .stretch: return NSLocalizedString("stretch_mode", comment: "")
+        case .custom: return NSLocalizedString("custom_mode", comment: "")
         }
     }
     var videoGravity: AVLayerVideoGravity {

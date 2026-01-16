@@ -113,7 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         let activeScreens = WallpaperEngine.shared.activeScreens
         if activeScreens.isEmpty {
-            let item = NSMenuItem(title: "没有正在播放的壁纸", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: NSLocalizedString("no_playing_wallpaper", comment: ""), action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
@@ -128,12 +128,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         menu.addItem(NSMenuItem.separator())
         let isPaused = WallpaperEngine.shared.isGlobalPaused
-        menu.addItem(withTitle: isPaused ? "继续所有" : "暂停所有", action: #selector(togglePause), keyEquivalent: "p")
-        menu.addItem(withTitle: "打开主界面...", action: #selector(openMainWindow), keyEquivalent: "o")
+        menu.addItem(withTitle: isPaused ? NSLocalizedString("resume_all", comment: "") : NSLocalizedString("pause_all", comment: ""), action: #selector(togglePause), keyEquivalent: "p")
+        menu.addItem(withTitle: NSLocalizedString("open_main_window", comment: ""), action: #selector(openMainWindow), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "检查更新...", action: #selector(checkUpdates), keyEquivalent: "")
+        menu.addItem(withTitle: NSLocalizedString("check_updates_menu", comment: ""), action: #selector(checkUpdates), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "退出 OpenMetalWallpaper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: NSLocalizedString("quit_app", comment: ""), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         return menu
     }
     
