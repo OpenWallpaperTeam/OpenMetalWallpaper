@@ -62,6 +62,9 @@ class ScreenController: NSObject {
     var isMemoryMode: Bool = false
     private var isLoading: Bool = false
     
+    // 记录上一次设置的临时锁屏壁纸路径，用于清理
+    private var lastLockScreenURL: URL?
+    
     var volume: Float = 0.5 {
         didSet {
             self.currentPlayer?.setVolume(self.volume)
@@ -251,31 +254,43 @@ class ScreenController: NSObject {
             NotificationCenter.default.post(name: Notification.Name("omw_restore_focus"), object: nil)
             
             if UserDefaults.standard.bool(forKey: "omw_overrideLockScreen") {
-            // 延迟 1.5 秒以确保视频已准备就绪或 Web 页面已加载完成
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-                        guard let self = self, self.currentWallpaperID == wallpaperId else { return }
-                        self.currentPlayer?.snapshot { [weak self] image in
-                            guard let self = self, let img = image else { return }
-                            self.setSystemWallpaper(image: img)
-                        }
+                // 延迟 1.5 秒以确保视频已准备就绪或 Web 页面已加载完成
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                    guard let self = self, self.currentWallpaperID == wallpaperId else { return }
+                    self.currentPlayer?.snapshot { [weak self] image in
+                        guard let self = self, let img = image else { return }
+                        self.setSystemWallpaper(image: img)
                     }
                 }
+            }
         }
     }
     
     private func setSystemWallpaper(image: NSImage) {
-        // 保存图片到临时目录，文件名包含屏幕名称以防冲突
+        // 清理旧文件
+        if let lastURL = self.lastLockScreenURL {
+            try? FileManager.default.removeItem(at: lastURL)
+        }
+        
+        // 使用 UUID 生成唯一文件名，强制系统识别为新壁纸
+        let uniqueID = UUID().uuidString
         let safeName = screen.localizedName.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
-        let filename = "omw_lock_\(safeName).png"
+        let filename = "omw_lock_\(safeName)_\(uniqueID).png"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
+        
+        self.lastLockScreenURL = tempURL
             
         if let tiff = image.tiffRepresentation,
             let bitmap = NSBitmapImageRep(data: tiff),
             let pngData = bitmap.representation(using: .png, properties: [:]) {
-            try? pngData.write(to: tempURL)
-                
-            // 设置系统壁纸 (macOS 锁屏通常会跟随桌面壁纸)
-            try? NSWorkspace.shared.setDesktopImageURL(tempURL, for: self.screen, options: [:])
+            do {
+                try pngData.write(to: tempURL)
+                // 设置系统壁纸
+                try NSWorkspace.shared.setDesktopImageURL(tempURL, for: self.screen, options: [:])
+                print("System wallpaper updated for lock screen override.")
+            } catch {
+                print("Failed to set system wallpaper: \(error)")
+            }
         }
     }
     
