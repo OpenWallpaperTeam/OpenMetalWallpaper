@@ -6,6 +6,8 @@
 
 <br>
 
+> [英文版](README-EN.md) 🇬🇧
+
 # OpenMetalWallpaper
 
 [![GitHub License](https://img.shields.io/github/license/laobamac/OpenMetalWallpaper?style=flat-square&color=brightgreen)](https://github.com/laobamac/OpenMetalWallpaper/blob/main/LICENSE)

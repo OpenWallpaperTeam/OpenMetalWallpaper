@@ -50,10 +50,10 @@ struct ContentView: View {
                                 WallpaperCard(wallpaper: wallpaper)
                                     .onTapGesture { self.selectedWallpaper = wallpaper; applyWallpaper(wallpaper) }
                                     .contextMenu {
-                                        Button("在 Finder 中显示") { if let path = wallpaper.absolutePath { NSWorkspace.shared.activateFileViewerSelecting([path]) } }
+                                        Button(NSLocalizedString("show_in_finder", comment: "")) { if let path = wallpaper.absolutePath { NSWorkspace.shared.activateFileViewerSelecting([path]) } }
                                         Divider()
-                                        Button("从列表移除") { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: false); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
-                                        Button("删除壁纸文件 (物理删除)", role: .destructive) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: true); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
+                                        Button(NSLocalizedString("remove_from_list", comment: "")) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: false); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
+                                        Button(NSLocalizedString("delete_wallpaper_file", comment: ""), role: .destructive) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: true); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
                                     }
                                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: selectedWallpaper?.id == wallpaper.id ? 4 : 0))
                             }
@@ -62,7 +62,7 @@ struct ContentView: View {
                 }
                 Divider()
                 HStack(spacing: 16) {
-                    Button(action: { isImporting = true }) { Label("添加", systemImage: "plus") }
+                    Button(action: { isImporting = true }) { Label(NSLocalizedString("add_button", comment: ""), systemImage: "plus") }
                     Divider().frame(height: 20)
                     
                     // 暂停/播放 按钮
@@ -70,15 +70,15 @@ struct ContentView: View {
                         Image(systemName: isGlobalPaused ? "play.fill" : "pause.fill").font(.title2)
                     }
                     .buttonStyle(.borderless)
-                    .help(isGlobalPaused ? "继续播放" : "暂停播放")
+                    .help(isGlobalPaused ? NSLocalizedString("play_help", comment: "") : NSLocalizedString("pause_help", comment: ""))
                     // --- 核心修复：监听全局暂停通知 ---
                     .onReceive(NotificationCenter.default.publisher(for: .globalPauseDidChange)) { _ in
                         self.isGlobalPaused = WallpaperEngine.shared.isGlobalPaused
                     }
                     
-                    Button(action: stopCurrentMonitor) { Label("停止当前屏幕", systemImage: "square.fill") }.buttonStyle(.bordered).tint(.red)
+                    Button(action: stopCurrentMonitor) { Label(NSLocalizedString("stop_current_screen", comment: ""), systemImage: "square.fill") }.buttonStyle(.bordered).tint(.red)
                     Spacer()
-                    Button(action: { showSettings = true }) { Label("设置", systemImage: "gearshape") }
+                    Button(action: { showSettings = true }) { Label(NSLocalizedString("settings_button", comment: ""), systemImage: "gearshape") }
                 }.padding().background(Material.bar)
             }
             .navigationSplitViewColumnWidth(min: 400, ideal: 600)
@@ -88,7 +88,7 @@ struct ContentView: View {
                 WallpaperInspector(wallpaper: wallpaper, monitor: monitor)
                     .id(wallpaper.id)
             } else {
-                Text("选择一张壁纸以编辑属性").foregroundColor(.secondary)
+                Text(NSLocalizedString("select_wallpaper_message", comment: "")).foregroundColor(.secondary)
             }
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -96,11 +96,11 @@ struct ContentView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showNewWallpaperSheet) {
             VStack(spacing: 20) {
-                Text("新建视频壁纸").font(.headline)
-                TextField("壁纸名称", text: $newWallpaperName).textFieldStyle(.roundedBorder).frame(width: 300)
+                Text(NSLocalizedString("new_video_wallpaper_title", comment: "")).font(.headline)
+                TextField(NSLocalizedString("wallpaper_name_placeholder", comment: ""), text: $newWallpaperName).textFieldStyle(.roundedBorder).frame(width: 300)
                 HStack {
-                    Button("取消") { showNewWallpaperSheet = false; pendingVideoURL = nil }.keyboardShortcut(.cancelAction)
-                    Button("创建") { if let url = pendingVideoURL { library.importVideoFile(url: url, title: newWallpaperName); showNewWallpaperSheet = false; pendingVideoURL = nil } }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    Button(NSLocalizedString("cancel_button", comment: "")) { showNewWallpaperSheet = false; pendingVideoURL = nil }.keyboardShortcut(.cancelAction)
+                    Button(NSLocalizedString("create_button", comment: "")) { if let url = pendingVideoURL { library.importVideoFile(url: url, title: newWallpaperName); showNewWallpaperSheet = false; pendingVideoURL = nil } }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                 }
             }.padding().frame(width: 350, height: 150)
         }
@@ -170,42 +170,42 @@ struct WallpaperInspector: View {
                 Divider()
                 Group {
                     HStack {
-                        Text("显示").font(.headline)
+                        Text(NSLocalizedString("display_header", comment: "")).font(.headline)
                         Spacer()
-                        Button("恢复默认") {
+                        Button(NSLocalizedString("restore_defaults_button", comment: "")) {
                             let controller = WallpaperEngine.shared.getController(for: monitor.screen)
                             controller.resetSettings()
                         }.font(.caption)
                     }
                     if !isWeb {
-                        Picker("模式", selection: $scaleMode) { ForEach(WallpaperScaleMode.allCases) { mode in Text(mode.label).tag(mode) } }.pickerStyle(.radioGroup).onChange(of: scaleMode) { syncToEngine() }
+                        Picker(NSLocalizedString("mode_label", comment: ""), selection: $scaleMode) { ForEach(WallpaperScaleMode.allCases) { mode in Text(mode.label).tag(mode) } }.pickerStyle(.radioGroup).onChange(of: scaleMode) { syncToEngine() }
                         if scaleMode == .custom {
                             VStack(spacing: 12) {
                                 Divider()
-                                HStack { Text("缩放"); Spacer(); Text(String(format: "%.2f", manualScale)).monospacedDigit().foregroundColor(.secondary) }
+                                HStack { Text(NSLocalizedString("scale_label", comment: "")); Spacer(); Text(String(format: "%.2f", manualScale)).monospacedDigit().foregroundColor(.secondary) }
                                 Slider(value: $manualScale, in: 0.5...5.0)
-                                HStack { Text("X 轴"); Spacer(); Text("\(Int(manualOffsetX))").monospacedDigit().foregroundColor(.secondary) }
+                                HStack { Text(NSLocalizedString("x_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetX))").monospacedDigit().foregroundColor(.secondary) }
                                 Slider(value: $manualOffsetX, in: -800...800)
-                                HStack { Text("Y 轴"); Spacer(); Text("\(Int(manualOffsetY))").monospacedDigit().foregroundColor(.secondary) }
+                                HStack { Text(NSLocalizedString("y_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetY))").monospacedDigit().foregroundColor(.secondary) }
                                 Slider(value: $manualOffsetY, in: -800...800)
-                                Button("重置自定义参数") { manualScale = 1.0; manualOffsetX = 0; manualOffsetY = 0 }.font(.caption).padding(.top, 4)
+                                Button(NSLocalizedString("reset_custom_params_button", comment: "")) { manualScale = 1.0; manualOffsetX = 0; manualOffsetY = 0 }.font(.caption).padding(.top, 4)
                                 Divider()
                             }.padding(.leading, 8).transition(.opacity)
                         }
-                    } else { Text("Web 壁纸自动适应屏幕").font(.caption).foregroundColor(.secondary) }
+                    } else { Text(NSLocalizedString("web_wallpaper_auto_adapt", comment: "")).font(.caption).foregroundColor(.secondary) }
                     HStack {
-                        Text("旋转")
+                        Text(NSLocalizedString("rotation_label", comment: ""))
                         Spacer()
                         Picker("", selection: $rotation) { Text("0°").tag(0); Text("90°").tag(90); Text("180°").tag(180); Text("270°").tag(270) }.pickerStyle(.menu).frame(width: 100)
                     }.onChange(of: rotation) { syncToEngine() }
-                    if isWeb { HStack { Text("背景颜色 (Web)"); Spacer(); ColorPicker("", selection: $backgroundColor, supportsOpacity: false).labelsHidden() }.onChange(of: backgroundColor) { syncToEngine() } }
+                    if isWeb { HStack { Text(NSLocalizedString("background_color_web_label", comment: "")); Spacer(); ColorPicker("", selection: $backgroundColor, supportsOpacity: false).labelsHidden() }.onChange(of: backgroundColor) { syncToEngine() } }
                     Divider()
-                    Text("播放").font(.headline)
-                    HStack { Text("音量"); Spacer(); Text("\(Int(volume * 100))%") }
+                    Text(NSLocalizedString("playback_header", comment: "")).font(.headline)
+                    HStack { Text(NSLocalizedString("volume_label", comment: "")); Spacer(); Text("\(Int(volume * 100))%") }
                     Slider(value: $volume, in: 0...1)
-                    HStack { Text("速率"); Spacer(); Text(String(format: "%.1fx", playbackRate)) }
+                    HStack { Text(NSLocalizedString("rate_label", comment: "")); Spacer(); Text(String(format: "%.1fx", playbackRate)) }
                     Slider(value: $playbackRate, in: 0.1...2.0, step: 0.1)
-                    Toggle("循环播放", isOn: $isLoopEnabled)
+                    Toggle(NSLocalizedString("loop_playback", comment: ""), isOn: $isLoopEnabled)
                 }
                 Spacer()
             }.padding()
@@ -250,7 +250,7 @@ struct SidebarView: View {
     @Binding var selectedCategory: String?
     var body: some View {
         VStack(spacing: 0) {
-            List(selection: $selectedCategory) { Section(header: Text("壁纸库")) { Label("已安装", systemImage: "externaldrive.fill").tag("installed") }; Section(header: Text("发现")) { Label("创意工坊", systemImage: "globe").tag("workshop") } }.listStyle(.sidebar)
+            List(selection: $selectedCategory) { Section(header: Text(NSLocalizedString("library_header", comment: ""))) { Label(NSLocalizedString("installed_label", comment: ""), systemImage: "externaldrive.fill").tag("installed") }; Section(header: Text(NSLocalizedString("discover_header", comment: ""))) { Label(NSLocalizedString("workshop_label", comment: ""), systemImage: "globe").tag("workshop") } }.listStyle(.sidebar)
             Spacer()
             VStack(alignment: .leading, spacing: 10) { Divider(); Link(destination: URL(string: "https://github.com/laobamac/OpenMetalWallpaper")!) { HStack(alignment: .center, spacing: 12) { if let logoImage = NSImage(named: "AppLogo") { Image(nsImage: logoImage).resizable().aspectRatio(contentMode: .fit).frame(width: 40, height: 40) } else { Image(nsImage: NSApp.applicationIconImage).resizable().aspectRatio(contentMode: .fit).frame(width: 40, height: 40) }; VStack(alignment: .leading, spacing: 0) { Text("OpenMetalWallpaper").font(.system(size: 13, weight: .bold)).foregroundColor(.primary).lineLimit(1).minimumScaleFactor(0.8); Text("By laobamac").font(.caption).foregroundColor(.secondary) } } }.buttonStyle(.plain).padding(.top, 4); HStack { Text("License: AGPLv3").font(.system(size: 10, weight: .bold, design: .monospaced)).padding(4).background(Color.gray.opacity(0.2)).cornerRadius(4); Spacer() } }.padding().background(Color(nsColor: .controlBackgroundColor))
         }
@@ -259,10 +259,10 @@ struct SidebarView: View {
 
 struct MonitorPickerHeader: View {
     let monitors: [Monitor]; @Binding var selectedMonitor: Monitor?; var refreshAction: () -> Void
-    var body: some View { HStack { Image(systemName: "display"); Text("当前配置:").foregroundColor(.secondary); Picker("", selection: $selectedMonitor) { ForEach(monitors) { monitor in Text(monitor.name).tag(monitor as Monitor?) } }.pickerStyle(.menu).frame(width: 200); Spacer(); Button(action: refreshAction) { Image(systemName: "arrow.triangle.2.circlepath") } }.padding(.horizontal).padding(.vertical, 8).background(Material.bar) }
+    var body: some View { HStack { Image(systemName: "display"); Text(NSLocalizedString("current_display", comment: "")).foregroundColor(.secondary); Picker("", selection: $selectedMonitor) { ForEach(monitors) { monitor in Text(monitor.name).tag(monitor as Monitor?) } }.pickerStyle(.menu).frame(width: 200); Spacer(); Button(action: refreshAction) { Image(systemName: "arrow.triangle.2.circlepath") } }.padding(.horizontal).padding(.vertical, 8).background(Material.bar) }
 }
 
 struct EmptyStateView: View {
     @Binding var isImporting: Bool
-    var body: some View { VStack(spacing: 20) { Image(systemName: "photo.on.rectangle.angled").font(.system(size: 60)).foregroundColor(.secondary); Text("没有找到壁纸").font(.title); Text("拖放视频文件或文件夹到此处").font(.caption).foregroundColor(.secondary); Button("立即导入") { isImporting = true }.buttonStyle(.borderedProminent).controlSize(.large) }.frame(maxWidth: .infinity, maxHeight: .infinity) }
+    var body: some View { VStack(spacing: 20) { Image(systemName: "photo.on.rectangle.angled").font(.system(size: 60)).foregroundColor(.secondary); Text(NSLocalizedString("no_wallpapers_found", comment: "")).font(.title); Text(NSLocalizedString("drag_drop_hint", comment: "")).font(.caption).foregroundColor(.secondary); Button(NSLocalizedString("import_now_button", comment: "")) { isImporting = true }.buttonStyle(.borderedProminent).controlSize(.large) }.frame(maxWidth: .infinity, maxHeight: .infinity) }
 }

@@ -47,7 +47,7 @@ struct WallpaperCard: View {
                     .lineLimit(1)
                     .foregroundColor(.primary)
                 
-                Text(wallpaper.file ?? "未知来源")
+                Text(wallpaper.file ?? NSLocalizedString("unknown_source", comment: ""))
                     .font(.caption)
                     .lineLimit(1)
                     .foregroundColor(.secondary)

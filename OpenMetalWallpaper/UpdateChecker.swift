@@ -8,7 +8,7 @@
 import Cocoa
 import Foundation
 
-struct GitHubRelease: Codable {
+struct GitHubRelease: Codable, Sendable {
     let tagName: String
     let htmlUrl: String
     let body: String
@@ -36,7 +36,7 @@ class UpdateChecker: NSObject {
         
         let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             guard let self = self, let data = data, error == nil else {
-                if userInitiated { self?.showError(message: "检查更新失败，请检查网络连接。") }
+                if userInitiated { self?.showError(message: NSLocalizedString("update_check_failed", comment: "")) }
                 return
             }
             
@@ -44,7 +44,7 @@ class UpdateChecker: NSObject {
                 let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
                 self.compareVersion(release: release, userInitiated: userInitiated)
             } catch {
-                if userInitiated { self.showError(message: "无法解析版本信息。") }
+                if userInitiated { self.showError(message: NSLocalizedString("parse_version_failed", comment: "")) }
                 print("Update Check Error: \(error)")
             }
         }
@@ -63,9 +63,9 @@ class UpdateChecker: NSObject {
             if userInitiated {
                 DispatchQueue.main.async {
                     let alert = NSAlert()
-                    alert.messageText = "当前已是最新版本"
-                    alert.informativeText = "当前版本: \(AppInfo.fullVersionString)\n最新发布: \(release.tagName)"
-                    alert.addButton(withTitle: "好")
+                    alert.messageText = NSLocalizedString("current_latest_version", comment: "")
+                    alert.informativeText = String(format: NSLocalizedString("current_version_latest", comment: ""), AppInfo.fullVersionString, release.tagName)
+                    alert.addButton(withTitle: NSLocalizedString("ok_button", comment: ""))
                     alert.runModal()
                 }
             }
@@ -74,10 +74,10 @@ class UpdateChecker: NSObject {
     
     private func showUpdateAlert(release: GitHubRelease) {
         let alert = NSAlert()
-        alert.messageText = "发现新版本: \(release.tagName)"
-        alert.informativeText = "当前版本: v\(currentVersion)\n\n更新内容:\n\(release.body)"
-        alert.addButton(withTitle: "前往下载")
-        alert.addButton(withTitle: "以后再说")
+        alert.messageText = String(format: NSLocalizedString("new_version_found", comment: ""), release.tagName)
+        alert.informativeText = String(format: NSLocalizedString("current_version_update", comment: ""), currentVersion, release.body)
+        alert.addButton(withTitle: NSLocalizedString("download_button", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("later_button", comment: ""))
         
         let response = alert.runModal()
         if response == .alertFirstButtonReturn {
@@ -90,9 +90,9 @@ class UpdateChecker: NSObject {
     private func showError(message: String) {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "更新检查错误"
+            alert.messageText = NSLocalizedString("update_check_error", comment: "")
             alert.informativeText = message
-            alert.addButton(withTitle: "确定")
+            alert.addButton(withTitle: NSLocalizedString("confirm_button", comment: ""))
             alert.runModal()
         }
     }

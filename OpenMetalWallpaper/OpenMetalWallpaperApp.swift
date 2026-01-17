@@ -66,24 +66,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
-    // 拦截关闭
+    // 拦截关闭 - Blocking and closing
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if sender === mainWindow {
-            NSApp.setActivationPolicy(.accessory) // 隐藏 Dock
-            sender.orderOut(nil) // 隐藏窗口
-            return false // 阻止销毁
+            NSApp.setActivationPolicy(.accessory) // 隐藏 - Hide from Dock
+            sender.orderOut(nil) // 隐藏窗口 - Hide window
+            return false // 阻止销毁 - Prevent destruction
         }
         return true
     }
     
     @objc func openMainWindow() {
-        NSApp.setActivationPolicy(.regular) // 显示 Dock
-        NSApp.activate(ignoringOtherApps: true) // 前台
+        NSApp.setActivationPolicy(.regular) // 显示 - Show in Dock
+        NSApp.activate(ignoringOtherApps: true) // 前台 - Bring to foreground
         
         if let window = mainWindow {
             window.makeKeyAndOrderFront(nil)
         } else {
-            // 兜底查找
+            // 兜底查找 - Bottom-line search
             if let found = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) {
                 self.mainWindow = found
                 found.delegate = self
@@ -113,7 +113,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         
         let activeScreens = WallpaperEngine.shared.activeScreens
         if activeScreens.isEmpty {
-            let item = NSMenuItem(title: "没有正在播放的壁纸", action: nil, keyEquivalent: "")
+            let item = NSMenuItem(title: NSLocalizedString("no_playing_wallpaper", comment: ""), action: nil, keyEquivalent: "")
             item.isEnabled = false
             menu.addItem(item)
         } else {
@@ -128,12 +128,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         menu.addItem(NSMenuItem.separator())
         let isPaused = WallpaperEngine.shared.isGlobalPaused
-        menu.addItem(withTitle: isPaused ? "继续所有" : "暂停所有", action: #selector(togglePause), keyEquivalent: "p")
-        menu.addItem(withTitle: "打开主界面...", action: #selector(openMainWindow), keyEquivalent: "o")
+        menu.addItem(withTitle: isPaused ? NSLocalizedString("resume_all", comment: "") : NSLocalizedString("pause_all", comment: ""), action: #selector(togglePause), keyEquivalent: "p")
+        menu.addItem(withTitle: NSLocalizedString("open_main_window", comment: ""), action: #selector(openMainWindow), keyEquivalent: "o")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "检查更新...", action: #selector(checkUpdates), keyEquivalent: "")
+        menu.addItem(withTitle: NSLocalizedString("check_updates_menu", comment: ""), action: #selector(checkUpdates), keyEquivalent: "")
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(withTitle: "退出 OpenMetalWallpaper", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        menu.addItem(withTitle: NSLocalizedString("quit_app", comment: ""), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         return menu
     }
     
