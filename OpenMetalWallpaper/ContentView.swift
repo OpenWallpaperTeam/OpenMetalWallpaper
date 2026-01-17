@@ -2,7 +2,8 @@
  License: AGPLv3
  Author: laobamac
  File: ContentView.swift
- Description: UI with Global Pause Sync.
+ Description: UI with Global Pause Sync & Liquid Glass Style (macOS 16+).
+ Refactored to fix compiler type-check timeout.
 */
 
 import SwiftUI
@@ -29,66 +30,114 @@ struct ContentView: View {
     @State private var newWallpaperName: String = ""
     @AppStorage("omw_loadToMemory") private var loadToMemory: Bool = false
     
+    // 动画命名空间
+    @Namespace private var animationSpace
+    
     var filteredWallpapers: [WallpaperProject] {
         guard let category = selectedCategory else { return library.wallpapers }
         if category == "workshop" { return library.wallpapers.filter { $0.absolutePath?.path.contains("steamapps") ?? false } }
         return library.wallpapers
     }
     
-    var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selectedCategory: $selectedCategory).navigationSplitViewColumnWidth(min: 200, ideal: 220)
-        } content: {
-            VStack(spacing: 0) {
-                MonitorPickerHeader(monitors: monitors, selectedMonitor: $selectedMonitor, refreshAction: refreshMonitors)
-                if filteredWallpapers.isEmpty {
-                    EmptyStateView(isImporting: $isImporting)
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 240), spacing: 16)], spacing: 16) {
-                            ForEach(filteredWallpapers) { wallpaper in
-                                WallpaperCard(wallpaper: wallpaper)
-                                    .onTapGesture { self.selectedWallpaper = wallpaper; applyWallpaper(wallpaper) }
-                                    .contextMenu {
-                                        Button(NSLocalizedString("show_in_finder", comment: "")) { if let path = wallpaper.absolutePath { NSWorkspace.shared.activateFileViewerSelecting([path]) } }
-                                        Divider()
-                                        Button(NSLocalizedString("remove_from_list", comment: "")) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: false); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
-                                        Button(NSLocalizedString("delete_wallpaper_file", comment: ""), role: .destructive) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: true); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
-                                    }
-                                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: selectedWallpaper?.id == wallpaper.id ? 4 : 0))
+    // MARK: - Subviews Extraction (Fixes Compiler Timeout)
+    
+    @ViewBuilder
+    private var wallpaperList: some View {
+        if filteredWallpapers.isEmpty {
+            EmptyStateView(isImporting: $isImporting)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+        } else {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 240), spacing: 16)], spacing: 16) {
+                    ForEach(filteredWallpapers) { wallpaper in
+                        WallpaperCard(wallpaper: wallpaper)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    self.selectedWallpaper = wallpaper
+                                    applyWallpaper(wallpaper)
+                                }
                             }
-                        }.padding()
+                            .contextMenu {
+                                Button(NSLocalizedString("show_in_finder", comment: "")) { if let path = wallpaper.absolutePath { NSWorkspace.shared.activateFileViewerSelecting([path]) } }
+                                Divider()
+                                Button(NSLocalizedString("remove_from_list", comment: "")) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: false); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
+                                Button(NSLocalizedString("delete_wallpaper_file", comment: ""), role: .destructive) { WallpaperEngine.shared.stopWallpaper(id: wallpaper.id); library.removeWallpaper(id: wallpaper.id, deleteFile: true); if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil } }
+                            }
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.accentColor, lineWidth: selectedWallpaper?.id == wallpaper.id ? 4 : 0)
+                                    .animation(.easeInOut(duration: 0.2), value: selectedWallpaper?.id)
+                            )
+                            .transition(.scale.combined(with: .opacity))
                     }
                 }
+                .padding()
+                // macOS 16+ 内容区域内缩，适应圆角窗口
+                .padding(isMacOSTahoeOrLater() ? 10 : 0)
+            }
+        }
+    }
+    
+    private var bottomToolbar: some View {
+        HStack(spacing: 16) {
+            Button(action: { isImporting = true }) { Label(NSLocalizedString("add_button", comment: ""), systemImage: "plus") }
+            Divider().frame(height: 20)
+            
+            // 暂停/播放 按钮
+            Button(action: toggleGlobalPause) {
+                Image(systemName: isGlobalPaused ? "play.fill" : "pause.fill").font(.title2)
+            }
+            .buttonStyle(.borderless)
+            .help(isGlobalPaused ? NSLocalizedString("play_help", comment: "") : NSLocalizedString("pause_help", comment: ""))
+            .onReceive(NotificationCenter.default.publisher(for: .globalPauseDidChange)) { _ in
+                self.isGlobalPaused = WallpaperEngine.shared.isGlobalPaused
+            }
+            
+            Button(action: stopCurrentMonitor) { Label(NSLocalizedString("stop_current_screen", comment: ""), systemImage: "square.fill") }.buttonStyle(.bordered).tint(.red)
+            Spacer()
+            Button(action: { showSettings = true }) { Label(NSLocalizedString("settings_button", comment: ""), systemImage: "gearshape") }
+        }
+        .padding()
+        // macOS 16+ 使用玻璃材质替代默认的 Material.bar
+        .background(isMacOSTahoeOrLater() ? AnyView(VisualEffectView(material: .hudWindow, blendingMode: .withinWindow).opacity(0.3)) : AnyView(Rectangle().fill(Material.bar)))
+    }
+    
+    // MARK: - Main Body
+    
+    var body: some View {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            SidebarView(selectedCategory: $selectedCategory)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+                .background(isMacOSTahoeOrLater() ? Color.clear : nil)
+        } content: {
+            VStack(spacing: 0) {
+                // 顶部显示器选择栏
+                MonitorPickerHeader(monitors: monitors, selectedMonitor: $selectedMonitor, refreshAction: refreshMonitors)
+                    .padding(.bottom, isMacOSTahoeOrLater() ? 8 : 0)
+                
+                // 提取的列表视图
+                wallpaperList
+                
                 Divider()
-                HStack(spacing: 16) {
-                    Button(action: { isImporting = true }) { Label(NSLocalizedString("add_button", comment: ""), systemImage: "plus") }
-                    Divider().frame(height: 20)
-                    
-                    // 暂停/播放 按钮
-                    Button(action: toggleGlobalPause) {
-                        Image(systemName: isGlobalPaused ? "play.fill" : "pause.fill").font(.title2)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(isGlobalPaused ? NSLocalizedString("play_help", comment: "") : NSLocalizedString("pause_help", comment: ""))
-                    // --- 核心修复：监听全局暂停通知 ---
-                    .onReceive(NotificationCenter.default.publisher(for: .globalPauseDidChange)) { _ in
-                        self.isGlobalPaused = WallpaperEngine.shared.isGlobalPaused
-                    }
-                    
-                    Button(action: stopCurrentMonitor) { Label(NSLocalizedString("stop_current_screen", comment: ""), systemImage: "square.fill") }.buttonStyle(.bordered).tint(.red)
-                    Spacer()
-                    Button(action: { showSettings = true }) { Label(NSLocalizedString("settings_button", comment: ""), systemImage: "gearshape") }
-                }.padding().background(Material.bar)
+                
+                // 提取的底部工具栏
+                bottomToolbar
             }
             .navigationSplitViewColumnWidth(min: 400, ideal: 600)
+            .liquidGlassStyle() // 核心玻璃效果 (只在 macOS 16+ 生效)
+            .cornerRadius(isMacOSTahoeOrLater() ? 16 : 0)
+            .padding(isMacOSTahoeOrLater() ? 10 : 0)
+            .animation(.smooth, value: filteredWallpapers.count)
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in handleDrop(providers: providers) }
+            .ignoresSafeArea(edges: .top)
         } detail: {
             if let wallpaper = selectedWallpaper, let monitor = selectedMonitor {
                 WallpaperInspector(wallpaper: wallpaper, monitor: monitor)
                     .id(wallpaper.id)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
-                Text(NSLocalizedString("select_wallpaper_message", comment: "")).foregroundColor(.secondary)
+                Text(NSLocalizedString("select_wallpaper_message", comment: ""))
+                    .foregroundColor(.secondary)
             }
         }
         .frame(minWidth: 900, minHeight: 600)
@@ -142,6 +191,7 @@ struct ContentView: View {
     private func stopCurrentMonitor() { guard let monitor = selectedMonitor?.screen else { return }; WallpaperEngine.shared.stop(screen: monitor); self.selectedWallpaper = nil; self.isGlobalPaused = false }
 }
 
+// Subviews (保持不变)
 struct WallpaperInspector: View {
     let wallpaper: WallpaperProject
     let monitor: Monitor
@@ -245,7 +295,6 @@ struct WallpaperInspector: View {
     }
 }
 
-// Subviews (Keep Same)
 struct SidebarView: View {
     @Binding var selectedCategory: String?
     var body: some View {

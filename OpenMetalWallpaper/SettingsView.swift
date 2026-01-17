@@ -14,7 +14,8 @@ struct SettingsView: View {
     @AppStorage("omw_loadToMemory") private var loadToMemory: Bool = false
     @AppStorage("omw_pauseOnAppFocus") private var pauseOnAppFocus: Bool = false
     @AppStorage("omw_checkUpdateOnStartup") private var checkUpdateOnStartup: Bool = true
-    @AppStorage("omw_overrideLockScreen") private var overrideLockScreen: Bool = false // 新增开关
+    @AppStorage("omw_overrideLockScreen") private var overrideLockScreen: Bool = false
+    @StateObject private var launchManager = LaunchManager.shared
     
     @State private var showClearDataAlert = false
     
@@ -96,6 +97,8 @@ struct SettingsView: View {
                 }
                 
                 Section {
+                    Toggle("开机自动启动", isOn: $launchManager.isLaunchAtLoginEnabled)
+                    .toggleStyle(.switch)
                     Toggle(NSLocalizedString("auto_check_updates", comment: ""), isOn: $checkUpdateOnStartup)
                     HStack {
                         Text(String(format: NSLocalizedString("current_version_text", comment: ""), AppInfo.fullVersionString)).foregroundColor(.secondary)

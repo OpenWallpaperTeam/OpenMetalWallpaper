@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: OpenMetalWallpaperApp.swift
- Description: App entry with Fixed Window Re-activation.
+ Description: App entry with Fixed Window Re-activation & Silent Launch Support.
 */
 
 import SwiftUI
@@ -30,8 +30,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusBarItem: NSStatusItem!
     var library: WallpaperLibrary?
     weak var mainWindow: NSWindow?
+    private var isRestoringSessions = false // 防止重复恢复
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 监听窗口激活，以便捕捉主窗口引用
         NotificationCenter.default.addObserver(self, selector: #selector(detectMainWindow(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
         
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -51,23 +53,70 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // 稍微延长延迟，确保屏幕和系统服务已就绪
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.findAndSetupMainWindow()
+            
             if let lib = self.library {
+                print("开始恢复壁纸会话...")
                 WallpaperEngine.shared.restoreSessions(library: lib)
             }
+            
+            // 如果 NSApp.isActive 为 false，说明是静默启动/开机自启
+            if !NSApp.isActive {
+                print("检测到后台启动，隐藏主界面")
+                self.hideMainWindow()
+            } else {
+                // 如果是手动双击启动，确保窗口在前
+                self.openMainWindow()
+            }
+        }
+    }
+    
+    
+    func hideMainWindow() {
+        if let window = self.mainWindow {
+            window.orderOut(nil)
+        }
+        // 只有真正隐藏了才切换策略，防止闪烁
+        NSApp.setActivationPolicy(.accessory)
+    }
+    
+    @objc func openMainWindow() {
+        NSApp.setActivationPolicy(.regular)
+        
+        DispatchQueue.main.async {
+            // 激活 App
+            NSApp.activate(ignoringOtherApps: true)
+            
+            // 尝试查找或复用窗口
             self.findAndSetupMainWindow()
+            
+            if let window = self.mainWindow {
+                window.makeKeyAndOrderFront(nil)
+                window.orderFrontRegardless()
+                window.deminiaturize(nil)
+            } else {
+                print("未找到主窗口引用，尝试通过 App 激活")
+            }
         }
     }
     
     func findAndSetupMainWindow() {
-        if self.mainWindow != nil { return }
-        // 查找第一个包含标题栏的窗口（排除壁纸窗口）
-        if let found = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) {
+        // 如果引用还在且有效，直接返回
+        if let current = self.mainWindow, current.isVisible || current.occlusionState.contains(.visible) {
+            return
+        }
+        
+        let candidates = NSApp.windows.filter { $0.styleMask.contains(.titled) && $0.identifier?.rawValue != "WallpaperWindow" }
+        
+        if let found = candidates.first {
             self.mainWindow = found
-            found.delegate = self // 关键：必须设置代理，windowShouldClose 才会生效
-            found.isReleasedWhenClosed = false // 关键：确保关闭时只是隐藏
+            found.delegate = self
+            found.isReleasedWhenClosed = false // 禁止释放
         }
     }
+    
     
     @objc func detectMainWindow(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
@@ -78,36 +127,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
-    // 拦截关闭 - Blocking and closing
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if sender.styleMask.contains(.titled) {
-            NSApp.setActivationPolicy(.accessory) // 隐藏 - Hide from Dock
-            sender.orderOut(nil) // 隐藏窗口 - Hide window
-            return false // 阻止销毁 - Prevent destruction
+            self.hideMainWindow()
+            return false
         }
         return true
-    }
-    
-    @objc func openMainWindow() {
-        NSApp.setActivationPolicy(.regular) // 显示 - Show in Dock
-        
-        // 确保应用激活
-        NSApp.activate(ignoringOtherApps: true)
-        
-        // 尝试唤起窗口
-        if let window = mainWindow {
-            window.makeKeyAndOrderFront(nil)
-            window.orderFrontRegardless() // 强行置顶
-        } else {
-            // 兜底查找
-            if let found = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) {
-                self.mainWindow = found
-                found.delegate = self
-                found.isReleasedWhenClosed = false
-                found.makeKeyAndOrderFront(nil)
-                found.orderFrontRegardless()
-            }
-        }
     }
     
     @objc func statusBarClicked(_ sender: NSStatusBarButton) {
@@ -162,7 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
 extension NSImage {
     func resized(to newSize: NSSize) -> NSImage? {
-        if let bitmapRep = NSBitmapImageRep(
+       if let bitmapRep = NSBitmapImageRep(
             bitmapDataPlanes: nil, pixelsWide: Int(newSize.width), pixelsHigh: Int(newSize.height),
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
             colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0

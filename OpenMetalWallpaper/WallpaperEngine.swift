@@ -373,17 +373,42 @@ class WallpaperEngine: NSObject {
     }
     
     func restoreSessions(library: WallpaperLibrary) {
-        DispatchQueue.main.async {
-            for (screenID, controller) in self.screenControllers {
-                if let lastID = WallpaperPersistence.shared.loadActiveWallpaper(monitor: screenID) {
-                    if let wallpaper = library.wallpapers.first(where: { $0.id == lastID }), let path = wallpaper.absolutePath {
-                        let loadToMemory = UserDefaults.standard.bool(forKey: "omw_loadToMemory")
-                        controller.play(url: path, wallpaperId: lastID, loadToMemory: loadToMemory)
+            self.refreshScreens()
+            
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                print("当前检测到的屏幕数量: \(self.screenControllers.count)")
+                
+                for (screenID, controller) in self.screenControllers {
+                    // 尝试加载上次的配置
+                    if let lastID = WallpaperPersistence.shared.loadActiveWallpaper(monitor: screenID) {
+                        print("正在为屏幕 \(screenID) 恢复壁纸: \(lastID)")
+                        
+                        if let wallpaper = library.wallpapers.first(where: { $0.id == lastID }),
+                           let path = wallpaper.absolutePath {
+                            
+                            let loadToMemory = UserDefaults.standard.bool(forKey: "omw_loadToMemory")
+                            
+                            // 播放
+                            controller.play(url: path, wallpaperId: lastID, loadToMemory: loadToMemory)
+                        } else {
+                            print("未找到壁纸文件: \(lastID)")
+                        }
+                    }
+                }
+                
+                // 即使 App 在后台启动，我们也要运行一次 Focus Check
+                // 如果用户开启了“有窗口时暂停”，这里会正确判断
+                self.checkAppFocusState()
+                
+                // 如果没有全局暂停，且不是系统暂停，强制所有 Controller 恢复播放
+                // 这是一个保险措施，防止开机时被卡在 paused 状态
+                if !self.isGlobalPaused && !self.isSystemPaused {
+                    self.screenControllers.values.forEach {
+                        if $0.isPlaying { $0.resume() }
                     }
                 }
             }
         }
-    }
     
     func stop(screen: NSScreen) { getController(for: screen).stop() }
     
@@ -403,24 +428,28 @@ class WallpaperEngine: NSObject {
     @objc func appDidActivate(_ notification: Notification) { checkAppFocusState() }
     
     private func checkAppFocusState() {
-        guard pauseOnAppFocus, !isGlobalPaused else { return }
-        guard let app = NSWorkspace.shared.frontmostApplication else { return }
-        
-        let isFinder = app.bundleIdentifier == "com.apple.finder"
-        let isMe = app.bundleIdentifier == Bundle.main.bundleIdentifier
-        
-        DispatchQueue.main.async {
-            if isFinder || isMe {
-                if self.isSystemPaused {
-                    self.isSystemPaused = false
-                    self.screenControllers.values.forEach { if $0.isPlaying { $0.resume() } }
-                }
-            } else {
-                if !self.isSystemPaused {
-                    self.isSystemPaused = true
-                    self.screenControllers.values.forEach { $0.pause() }
+            guard pauseOnAppFocus, !isGlobalPaused else { return }
+            
+            guard let app = NSWorkspace.shared.frontmostApplication else { return }
+            
+            let isFinder = app.bundleIdentifier == "com.apple.finder"
+            let isMe = app.bundleIdentifier == Bundle.main.bundleIdentifier
+            
+            DispatchQueue.main.async {
+                if isFinder || isMe {
+                    if self.isSystemPaused {
+                        print("恢复播放 (Finder/App Active)")
+                        self.isSystemPaused = false
+                        self.screenControllers.values.forEach { if $0.isPlaying { $0.resume() } }
+                    }
+                } else {
+                    // 其他应用在前台，暂停
+                    if !self.isSystemPaused {
+                        print("暂停播放 (Other App Active: \(app.localizedName ?? "Unknown"))")
+                        self.isSystemPaused = true
+                        self.screenControllers.values.forEach { $0.pause() }
+                    }
                 }
             }
         }
-    }
 }
