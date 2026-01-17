@@ -30,6 +30,13 @@
 "license_text" = "AGPLv3 License";
 "done_button" = "完成";
 "choose_storage_folder_message" = "选择一个新的文件夹来存储导入的壁纸";
+"clear_user_data" = "清理用户数据";
+"reset_property_and_mem" = "重置所有属性和内存数据";
+"clear_all" = "全部清除";
+"confirm_clear_data" = "确认清除数据";
+"clear_all_notice" = "这将删除所有壁纸的所有保存设置（音量、比例、旋转）。壁纸文件不会被删除。";
+"clear_button" = "清除";
+"maintenance" = "系统维护";
 
 /* ContentView.swift */
 "installed_label" = "已安装";

@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: SettingsView.swift
- Description: Settings with Library Path selection.
+ Description: Settings with Clear Data Button.
 */
 
 import SwiftUI
@@ -14,6 +14,8 @@ struct SettingsView: View {
     @AppStorage("omw_loadToMemory") private var loadToMemory: Bool = false
     @AppStorage("omw_pauseOnAppFocus") private var pauseOnAppFocus: Bool = false
     @AppStorage("omw_checkUpdateOnStartup") private var checkUpdateOnStartup: Bool = true
+    
+    @State private var showClearDataAlert = false // 弹窗状态
     
     var body: some View {
         VStack(spacing: 0) {
@@ -63,6 +65,32 @@ struct SettingsView: View {
                 }
                 
                 Section {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(NSLocalizedString("clear_user_data", comment: ""))
+                            Text(NSLocalizedString("reset_property_and_mem", comment: ""))
+                                .font(.caption).foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Button(NSLocalizedString("clear_all", comment: "")) {
+                            showClearDataAlert = true
+                        }
+                        .alert(isPresented: $showClearDataAlert) {
+                            Alert(
+                                title: Text(NSLocalizedString("confirm_clear_data", comment: "")),
+                                message: Text(NSLocalizedString("clear_all_notice", comment: "")),
+                                primaryButton: .destructive(Text(NSLocalizedString("clear_button", comment: "")), action: {
+                                    WallpaperPersistence.shared.deleteAllUserData()
+                                }),
+                                secondaryButton: .cancel()
+                            )
+                        }
+                    }
+                } header: {
+                    Text(NSLocalizedString("maintenance", comment: ""))
+                }
+                
+                Section {
                     Toggle(NSLocalizedString("auto_check_updates", comment: ""), isOn: $checkUpdateOnStartup)
                     HStack {
                         Text(String(format: NSLocalizedString("current_version_text", comment: ""), AppInfo.fullVersionString)).foregroundColor(.secondary)
@@ -84,7 +112,7 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(width: 500, height: 450)
+            .frame(width: 500, height: 500) // 稍微增加高度以容纳新选项
             
             Divider()
             

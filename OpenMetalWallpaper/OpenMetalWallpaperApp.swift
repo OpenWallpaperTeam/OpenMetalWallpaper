@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: OpenMetalWallpaperApp.swift
- Description: App entry with Fixed Window Re-activation.
+ Description: App entry with Focus Restoration Logic.
 */
 
 import SwiftUI
@@ -32,7 +32,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     weak var mainWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 监听窗口成为 Key Window，以便记录主窗口引用
         NotificationCenter.default.addObserver(self, selector: #selector(detectMainWindow(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(restoreMainWindowFocus), name: Notification.Name("omw_restore_focus"), object: nil)
         
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusBarItem.button {
@@ -58,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
+    // 只记录具备 Titled 样式的窗口（即主窗口），忽略壁纸窗口
     @objc func detectMainWindow(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
         if window.styleMask.contains(.titled) {
@@ -66,24 +70,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
     
-    // 拦截关闭 - Blocking and closing
+    // 当 Web 引擎抢占焦点后，将焦点抢回来
+    @objc func restoreMainWindowFocus() {
+        DispatchQueue.main.async {
+            // 只有当主窗口存在且可见时才恢复，避免后台播放时弹出窗口
+            if let window = self.mainWindow, window.isVisible {
+                window.makeKeyAndOrderFront(nil)
+            }
+        }
+    }
+    
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if sender === mainWindow {
-            NSApp.setActivationPolicy(.accessory) // 隐藏 - Hide from Dock
-            sender.orderOut(nil) // 隐藏窗口 - Hide window
-            return false // 阻止销毁 - Prevent destruction
+            NSApp.setActivationPolicy(.accessory) // 隐藏 Dock 图标
+            sender.orderOut(nil) // 隐藏窗口
+            return false // 阻止销毁
         }
         return true
     }
     
     @objc func openMainWindow() {
-        NSApp.setActivationPolicy(.regular) // 显示 - Show in Dock
-        NSApp.activate(ignoringOtherApps: true) // 前台 - Bring to foreground
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         
         if let window = mainWindow {
             window.makeKeyAndOrderFront(nil)
         } else {
-            // 兜底查找 - Bottom-line search
             if let found = NSApp.windows.first(where: { $0.styleMask.contains(.titled) }) {
                 self.mainWindow = found
                 found.delegate = self

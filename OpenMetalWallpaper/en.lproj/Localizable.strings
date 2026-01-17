@@ -30,6 +30,13 @@
 "license_text" = "AGPLv3 License";
 "done_button" = "Done";
 "choose_storage_folder_message" = "Select a new folder to store imported wallpapers";
+"clear_user_data" = "Clear User Data";
+"reset_property_and_mem" = "Reset all property and memory data";
+"clear_all" = "Clear All";
+"confirm_clear_data" = "Confirm Clear Data";
+"clear_all_notice" = "This will delete all user data including wallpapers, settings and preferences. This action cannot be undone.(Wallpaper files wont be deleted.)";
+"clear_button" = "Clear";
+"maintenance" = "Maintenance";
 
 /* ContentView.swift */
 "installed_label" = "Installed";

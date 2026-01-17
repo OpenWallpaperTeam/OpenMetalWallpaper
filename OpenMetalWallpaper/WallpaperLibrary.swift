@@ -1,8 +1,8 @@
 /*
  License: AGPLv3
  Author: laobamac
- File: WallpaperModel.swift
- Description: Model with Main-Thread UI updates for deletion.
+ File: WallpaperLibrary.swift
+ Description: Library with Sorted Import Logic.
 */
 
 import Foundation
@@ -48,7 +48,6 @@ class WallpaperLibrary: ObservableObject {
         importFromFolder(url: storageURL)
     }
     
-    // --- Import Logic ---
     func importVideoFile(url: URL, title: String) {
         let safeTitle = title.isEmpty ? url.deletingPathExtension().lastPathComponent : title
         let folderName = safeTitle.components(separatedBy: CharacterSet(charactersIn: "/\\?%*|\"<>:")).joined()
@@ -97,12 +96,20 @@ class WallpaperLibrary: ObservableObject {
             parseProjectJSON(url: directJson)
             return
         }
+        
+        var jsonFiles: [URL] = []
         if let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: nil) {
             for case let fileURL as URL in enumerator {
                 if fileURL.lastPathComponent == "project.json" {
-                    parseProjectJSON(url: fileURL)
+                    jsonFiles.append(fileURL)
                 }
             }
+        }
+        
+        jsonFiles.sort { $0.path < $1.path }
+        
+        for fileURL in jsonFiles {
+            parseProjectJSON(url: fileURL)
         }
     }
     
@@ -129,19 +136,11 @@ class WallpaperLibrary: ObservableObject {
     func removeWallpaper(id: String, deleteFile: Bool) {
         guard let index = wallpapers.firstIndex(where: { $0.id == id }) else { return }
         let wallpaper = wallpapers[index]
-        
         if deleteFile, let path = wallpaper.absolutePath {
             let folder = path.deletingLastPathComponent()
-            do {
-                try FileManager.default.removeItem(at: folder)
-                print("Physically deleted: \(folder.path)")
-            } catch {
-                print("Delete file failed: \(error)")
-            }
+            do { try FileManager.default.removeItem(at: folder); print("Physically deleted: \(folder.path)") } catch { print("Delete file failed: \(error)") }
         }
-        
         DispatchQueue.main.async {
-            // 再次检查索引，防止异步期间数组变动
             if let verifyIndex = self.wallpapers.firstIndex(where: { $0.id == id }) {
                 self.wallpapers.remove(at: verifyIndex)
                 print("Removed from library list")
@@ -158,10 +157,16 @@ class WallpaperLibrary: ObservableObject {
             if let preview = project.preview {
                 project.thumbnailPath = folder.appendingPathComponent(preview)
             }
-            if !wallpapers.contains(where: { $0.absolutePath == project.absolutePath }) {
-                let type = project.type?.lowercased() ?? ""
-                if type == "video" || type == "web" || type == "html" {
-                    DispatchQueue.main.async { self.wallpapers.append(project) }
+            
+            DispatchQueue.main.async {
+                // 防止重复添加
+                if !self.wallpapers.contains(where: { $0.absolutePath == project.absolutePath }) {
+                    let type = project.type?.lowercased() ?? ""
+                    if type == "video" || type == "web" || type == "html" {
+                        self.wallpapers.append(project)
+                        // 如果希望每次插入都重新排序（如果导入源较多）
+                        // self.wallpapers.sort { $0.title < $1.title }
+                    }
                 }
             }
         } catch { }
