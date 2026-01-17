@@ -21,14 +21,14 @@ struct GitHubRelease: Sendable {
 }
 
 extension GitHubRelease: Codable {
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.tagName = try container.decode(String.self, forKey: .tagName)
         self.htmlUrl = try container.decode(String.self, forKey: .htmlUrl)
         self.body = try container.decode(String.self, forKey: .body)
     }
     
-    func encode(to encoder: Encoder) throws {
+    nonisolated func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(tagName, forKey: .tagName)
         try container.encode(htmlUrl, forKey: .htmlUrl)
