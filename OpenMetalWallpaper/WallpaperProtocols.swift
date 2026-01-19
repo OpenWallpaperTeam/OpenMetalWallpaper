@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: WallpaperProtocols.swift
- Description: Interfaces updated with Rotation support.
+ Description: Interfaces updated with Post-Processing support.
 */
 
 import Cocoa
@@ -18,6 +18,10 @@ protocol WallpaperPlayer: NSObjectProtocol {
     func setVolume(_ volume: Float)
     func setPlaybackRate(_ rate: Float)
     func setMute(_ muted: Bool)
+    
+    func setFrameLimit(_ fps: Int)
+    
+    func setPostProcessing(brightness: Float, contrast: Float, saturation: Float)
     
     func setBackgroundColor(_ color: NSColor)
     
@@ -36,5 +40,11 @@ struct WallpaperOptions {
     var xOffset: CGFloat
     var yOffset: CGFloat
     var backgroundColor: NSColor
-    var rotation: Int // 0, 90, 180, 270
+    var rotation: Int
+    var fpsLimit: Int
+    
+    // Post-processing options
+    var brightness: Float // -0.5 to 0.5 (default 0)
+    var contrast: Float   // 0.0 to 2.0 (default 1)
+    var saturation: Float // 0.0 to 2.0 (default 1)
 }

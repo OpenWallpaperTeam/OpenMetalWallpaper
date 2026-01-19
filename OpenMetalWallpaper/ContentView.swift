@@ -2,8 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: ContentView.swift
- Description: UI with Global Pause Sync & Liquid Glass Style (macOS 16+).
- Refactored to fix compiler type-check timeout.
+ Description: UI with Post-Processing Sliders.
 */
 
 import SwiftUI
@@ -30,7 +29,10 @@ struct ContentView: View {
     @State private var newWallpaperName: String = ""
     @AppStorage("omw_loadToMemory") private var loadToMemory: Bool = false
     
-    // Animation namespace / 动画命名空间
+    @State private var showImportAlert = false
+    @State private var importStatusMessage = ""
+    @State private var isProcessingImport = false
+    
     @Namespace private var animationSpace
     
     var filteredWallpapers: [WallpaperProject] {
@@ -38,8 +40,6 @@ struct ContentView: View {
         if category == "workshop" { return library.wallpapers.filter { $0.absolutePath?.path.contains("steamapps") ?? false } }
         return library.wallpapers
     }
-    
-    // MARK: - Subviews Extraction (Fixes Compiler Timeout)
     
     @ViewBuilder
     private var wallpaperList: some View {
@@ -72,7 +72,6 @@ struct ContentView: View {
                     }
                 }
                 .padding()
-                // macOS 16+ content area inset, adapted to rounded window / macOS 16+ 内容区域内缩，适应圆角窗口
                 .padding(isMacOSTahoeOrLater() ? 10 : 0)
             }
         }
@@ -83,7 +82,6 @@ struct ContentView: View {
             Button(action: { isImporting = true }) { Label(NSLocalizedString("add_button", comment: ""), systemImage: "plus") }
             Divider().frame(height: 20)
             
-            // Pause/Play button / 暂停/播放 按钮
             Button(action: toggleGlobalPause) {
                 Image(systemName: isGlobalPaused ? "play.fill" : "pause.fill").font(.title2)
             }
@@ -95,10 +93,12 @@ struct ContentView: View {
             
             Button(action: stopCurrentMonitor) { Label(NSLocalizedString("stop_current_screen", comment: ""), systemImage: "square.fill") }.buttonStyle(.bordered).tint(.red)
             Spacer()
+            if isProcessingImport {
+                ProgressView().controlSize(.small).padding(.trailing)
+            }
             Button(action: { showSettings = true }) { Label(NSLocalizedString("settings_button", comment: ""), systemImage: "gearshape") }
         }
         .padding()
-        // macOS 16+ uses glass material instead of default Material.bar / macOS 16+ 使用玻璃材质替代默认的 Material.bar
         .background(isMacOSTahoeOrLater() ? AnyView(VisualEffectView(material: .hudWindow, blendingMode: .withinWindow).opacity(0.3)) : AnyView(Rectangle().fill(Material.bar)))
     }
     
@@ -111,20 +111,17 @@ struct ContentView: View {
                 .background(isMacOSTahoeOrLater() ? Color.clear : nil)
         } content: {
             VStack(spacing: 0) {
-                // Top monitor selector bar / 顶部显示器选择栏
                 MonitorPickerHeader(monitors: monitors, selectedMonitor: $selectedMonitor, refreshAction: refreshMonitors)
                     .padding(.bottom, isMacOSTahoeOrLater() ? 8 : 0)
                 
-                // Extracted list view / 提取的列表视图
                 wallpaperList
                 
                 Divider()
                 
-                // Extracted bottom toolbar / 提取的底部工具栏
                 bottomToolbar
             }
             .navigationSplitViewColumnWidth(min: 400, ideal: 600)
-            .liquidGlassStyle() // Core glass effect (only active on macOS 16+) / 核心玻璃效果 (只在 macOS 16+ 生效)
+            .liquidGlassStyle()
             .cornerRadius(isMacOSTahoeOrLater() ? 16 : 0)
             .padding(isMacOSTahoeOrLater() ? 10 : 0)
             .animation(.smooth, value: filteredWallpapers.count)
@@ -141,7 +138,25 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
-        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in if let url = try? result.get().first { guard url.startAccessingSecurityScopedResource() else { return }; library.importFromFolder(url: url) } }
+        .alert("Import Status", isPresented: $showImportAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(importStatusMessage)
+        }
+        .fileImporter(isPresented: $isImporting, allowedContentTypes: [.folder], allowsMultipleSelection: false) { result in
+            if let url = try? result.get().first {
+                guard url.startAccessingSecurityScopedResource() else { return }
+                isProcessingImport = true
+                DispatchQueue.global().async {
+                    library.importFromFolder(url: url)
+                    DispatchQueue.main.async {
+                        isProcessingImport = false
+                        importStatusMessage = "Folder imported. Check the library."
+                        showImportAlert = true
+                    }
+                }
+            }
+        }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showNewWallpaperSheet) {
             VStack(spacing: 20) {
@@ -149,7 +164,22 @@ struct ContentView: View {
                 TextField(NSLocalizedString("wallpaper_name_placeholder", comment: ""), text: $newWallpaperName).textFieldStyle(.roundedBorder).frame(width: 300)
                 HStack {
                     Button(NSLocalizedString("cancel_button", comment: "")) { showNewWallpaperSheet = false; pendingVideoURL = nil }.keyboardShortcut(.cancelAction)
-                    Button(NSLocalizedString("create_button", comment: "")) { if let url = pendingVideoURL { library.importVideoFile(url: url, title: newWallpaperName); showNewWallpaperSheet = false; pendingVideoURL = nil } }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+                    Button(NSLocalizedString("create_button", comment: "")) {
+                        if let url = pendingVideoURL {
+                            isProcessingImport = true
+                            let name = newWallpaperName
+                            showNewWallpaperSheet = false
+                            DispatchQueue.global().async {
+                                let success = library.importVideoFile(url: url, title: name)
+                                DispatchQueue.main.async {
+                                    isProcessingImport = false
+                                    pendingVideoURL = nil
+                                    importStatusMessage = success ? "Video wallpaper imported successfully." : "Failed to import video wallpaper."
+                                    showImportAlert = true
+                                }
+                            }
+                        }
+                    }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                 }
             }.padding().frame(width: 350, height: 150)
         }
@@ -158,7 +188,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .wallpaperDidChange)) { _ in syncSelection() }
     }
     
-    // Logic (Keep same)
+    // Logic
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { (urlData, error) in
@@ -166,12 +196,23 @@ struct ContentView: View {
                 if let urlData = urlData as? Data, let url = URL(dataRepresentation: urlData, relativeTo: nil) {
                     var isDir: ObjCBool = false
                     if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) {
-                        if isDir.boolValue { library.importFromFolder(url: url) }
-                        else {
+                        if isDir.boolValue {
+                            self.isProcessingImport = true
+                            DispatchQueue.global().async {
+                                self.library.importFromFolder(url: url)
+                                DispatchQueue.main.async {
+                                    self.isProcessingImport = false
+                                    self.importStatusMessage = "Folder import processed."
+                                    self.showImportAlert = true
+                                }
+                            }
+                        } else {
                             let ext = url.pathExtension.lowercased()
                             if ["mp4", "webm", "mov", "m4v", "avi"].contains(ext) {
-                                self.pendingVideoURL = url; self.newWallpaperName = url.deletingPathExtension().lastPathComponent; self.showNewWallpaperSheet = true
-                            } else if ["html", "htm"].contains(ext) { library.importFromFolder(url: url.deletingLastPathComponent()) }
+                                self.pendingVideoURL = url
+                                self.newWallpaperName = url.deletingPathExtension().lastPathComponent
+                                self.showNewWallpaperSheet = true
+                            }
                         }
                     }
                 }
@@ -191,7 +232,6 @@ struct ContentView: View {
     private func stopCurrentMonitor() { guard let monitor = selectedMonitor?.screen else { return }; WallpaperEngine.shared.stop(screen: monitor); self.selectedWallpaper = nil; self.isGlobalPaused = false }
 }
 
-// Subviews (unchanged) / Subviews (保持不变)
 struct WallpaperInspector: View {
     let wallpaper: WallpaperProject
     let monitor: Monitor
@@ -202,13 +242,12 @@ struct WallpaperInspector: View {
     @State private var manualScale: CGFloat = 1.0
     @State private var manualOffsetX: CGFloat = 0.0
     @State private var manualOffsetY: CGFloat = 0.0
-    @State private var backgroundColor: Color = .black
     @State private var rotation: Int = 0
     
-    var isWeb: Bool {
-        guard let ext = wallpaper.file?.components(separatedBy: ".").last?.lowercased() else { return false }
-        return ["html", "htm"].contains(ext)
-    }
+    // Post-processing states
+    @State private var brightness: Float = 0.0
+    @State private var contrast: Float = 1.0
+    @State private var saturation: Float = 1.0
     
     var body: some View {
         ScrollView {
@@ -227,29 +266,53 @@ struct WallpaperInspector: View {
                             controller.resetSettings()
                         }.font(.caption)
                     }
-                    if !isWeb {
-                        Picker(NSLocalizedString("mode_label", comment: ""), selection: $scaleMode) { ForEach(WallpaperScaleMode.allCases) { mode in Text(mode.label).tag(mode) } }.pickerStyle(.radioGroup).onChange(of: scaleMode) { syncToEngine() }
-                        if scaleMode == .custom {
-                            VStack(spacing: 12) {
-                                Divider()
-                                HStack { Text(NSLocalizedString("scale_label", comment: "")); Spacer(); Text(String(format: "%.2f", manualScale)).monospacedDigit().foregroundColor(.secondary) }
-                                Slider(value: $manualScale, in: 0.5...5.0)
-                                HStack { Text(NSLocalizedString("x_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetX))").monospacedDigit().foregroundColor(.secondary) }
-                                Slider(value: $manualOffsetX, in: -800...800)
-                                HStack { Text(NSLocalizedString("y_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetY))").monospacedDigit().foregroundColor(.secondary) }
-                                Slider(value: $manualOffsetY, in: -800...800)
-                                Button(NSLocalizedString("reset_custom_params_button", comment: "")) { manualScale = 1.0; manualOffsetX = 0; manualOffsetY = 0 }.font(.caption).padding(.top, 4)
-                                Divider()
-                            }.padding(.leading, 8).transition(.opacity)
-                        }
-                    } else { Text(NSLocalizedString("web_wallpaper_auto_adapt", comment: "")).font(.caption).foregroundColor(.secondary) }
+                    
+                    Picker(NSLocalizedString("mode_label", comment: ""), selection: $scaleMode) { ForEach(WallpaperScaleMode.allCases) { mode in Text(mode.label).tag(mode) } }.pickerStyle(.radioGroup).onChange(of: scaleMode) { syncToEngine() }
+                    if scaleMode == .custom {
+                        VStack(spacing: 12) {
+                            Divider()
+                            HStack { Text(NSLocalizedString("scale_label", comment: "")); Spacer(); Text(String(format: "%.2f", manualScale)).monospacedDigit().foregroundColor(.secondary) }
+                            Slider(value: $manualScale, in: 0.5...5.0)
+                            HStack { Text(NSLocalizedString("x_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetX))").monospacedDigit().foregroundColor(.secondary) }
+                            Slider(value: $manualOffsetX, in: -800...800)
+                            HStack { Text(NSLocalizedString("y_axis_label", comment: "")); Spacer(); Text("\(Int(manualOffsetY))").monospacedDigit().foregroundColor(.secondary) }
+                            Slider(value: $manualOffsetY, in: -800...800)
+                            Button(NSLocalizedString("reset_custom_params_button", comment: "")) { manualScale = 1.0; manualOffsetX = 0; manualOffsetY = 0 }.font(.caption).padding(.top, 4)
+                            Divider()
+                        }.padding(.leading, 8).transition(.opacity)
+                    }
+                    
                     HStack {
                         Text(NSLocalizedString("rotation_label", comment: ""))
                         Spacer()
                         Picker("", selection: $rotation) { Text("0°").tag(0); Text("90°").tag(90); Text("180°").tag(180); Text("270°").tag(270) }.pickerStyle(.menu).frame(width: 100)
                     }.onChange(of: rotation) { syncToEngine() }
-                    if isWeb { HStack { Text(NSLocalizedString("background_color_web_label", comment: "")); Spacer(); ColorPicker("", selection: $backgroundColor, supportsOpacity: false).labelsHidden() }.onChange(of: backgroundColor) { syncToEngine() } }
+                    
                     Divider()
+                    
+                    // Post Processing Section
+                    Text(NSLocalizedString("post_processing_header", comment: "")).font(.headline)
+                    Group {
+                        HStack { Text(NSLocalizedString("brightness_label", comment: "")); Spacer(); Text(String(format: "%.2f", brightness)).monospacedDigit().foregroundColor(.secondary) }
+                        Slider(value: $brightness, in: -0.5...0.5)
+                        
+                        HStack { Text(NSLocalizedString("contrast_label", comment: "")); Spacer(); Text(String(format: "%.2f", contrast)).monospacedDigit().foregroundColor(.secondary) }
+                        Slider(value: $contrast, in: 0.5...2.0)
+                        
+                        HStack { Text(NSLocalizedString("saturation_label", comment: "")); Spacer(); Text(String(format: "%.2f", saturation)).monospacedDigit().foregroundColor(.secondary) }
+                        Slider(value: $saturation, in: 0.0...2.0)
+                        
+                        Text(NSLocalizedString("aa_notice", comment: ""))
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 4)
+                    }
+                    .onChange(of: brightness) { syncToEngine() }
+                    .onChange(of: contrast) { syncToEngine() }
+                    .onChange(of: saturation) { syncToEngine() }
+                    
+                    Divider()
+                    
                     Text(NSLocalizedString("playback_header", comment: "")).font(.headline)
                     HStack { Text(NSLocalizedString("volume_label", comment: "")); Spacer(); Text("\(Int(volume * 100))%") }
                     Slider(value: $volume, in: 0...1)
@@ -269,7 +332,6 @@ struct WallpaperInspector: View {
         .onChange(of: manualOffsetX) { syncToEngine() }
         .onChange(of: manualOffsetY) { syncToEngine() }
         .onChange(of: rotation) { syncToEngine() }
-        .onChange(of: backgroundColor) { syncToEngine() }
         .onChange(of: monitor) { loadFromEngine() }
         .onReceive(NotificationCenter.default.publisher(for: .wallpaperDidChange)) { _ in loadFromEngine() }
     }
@@ -279,8 +341,11 @@ struct WallpaperInspector: View {
         if controller.currentWallpaperID == wallpaper.id {
             self.volume = controller.volume; self.playbackRate = controller.playbackRate; self.isLoopEnabled = controller.isLooping
             self.scaleMode = controller.scaleMode; self.manualScale = controller.videoScale == 0 ? 1.0 : controller.videoScale
-            self.manualOffsetX = controller.xOffset; self.manualOffsetY = controller.yOffset; self.backgroundColor = Color(nsColor: controller.backgroundColor)
+            self.manualOffsetX = controller.xOffset; self.manualOffsetY = controller.yOffset
             self.rotation = controller.rotation
+            self.brightness = controller.brightness
+            self.contrast = controller.contrast
+            self.saturation = controller.saturation
         }
     }
     
@@ -291,7 +356,8 @@ struct WallpaperInspector: View {
         if controller.isLooping != self.isLoopEnabled { controller.isLooping = self.isLoopEnabled }
         controller.scaleMode = self.scaleMode
         if self.scaleMode == .custom { controller.videoScale = self.manualScale; controller.xOffset = self.manualOffsetX; controller.yOffset = self.manualOffsetY }
-        controller.backgroundColor = NSColor(self.backgroundColor); controller.rotation = self.rotation
+        controller.rotation = self.rotation
+        controller.setPostProcessing(brightness: self.brightness, contrast: self.contrast, saturation: self.saturation)
     }
 }
 

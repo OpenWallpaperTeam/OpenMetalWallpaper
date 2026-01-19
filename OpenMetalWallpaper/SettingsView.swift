@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: SettingsView.swift
- Description: Settings with Clear Data Button.
+ Description: Settings with Frame Rate Limit.
 */
 
 import SwiftUI
@@ -15,8 +15,9 @@ struct SettingsView: View {
     @AppStorage("omw_pauseOnAppFocus") private var pauseOnAppFocus: Bool = false
     @AppStorage("omw_checkUpdateOnStartup") private var checkUpdateOnStartup: Bool = true
     @AppStorage("omw_overrideLockScreen") private var overrideLockScreen: Bool = false
-    @StateObject private var launchManager = LaunchManager.shared
+    @AppStorage("omw_fpsLimit") private var fpsLimit: Int = 60
     
+    @StateObject private var launchManager = LaunchManager.shared
     @State private var showClearDataAlert = false
     
     var body: some View {
@@ -56,6 +57,19 @@ struct SettingsView: View {
                         .help(NSLocalizedString("preload_help", comment: ""))
                     Text(NSLocalizedString("preload_description", comment: ""))
                         .font(.caption).foregroundColor(.secondary)
+                    
+                    HStack {
+                        Text(NSLocalizedString("frame_rate_limit", comment: ""))
+                        Spacer()
+                        Picker("", selection: $fpsLimit) {
+                            Text("15 FPS").tag(15)
+                            Text("30 FPS").tag(30)
+                            Text("45 FPS").tag(45)
+                            Text("60 FPS").tag(60)
+                        }
+                        .pickerStyle(.menu)
+                        .frame(width: 100)
+                    }
                 } header: {
                     Text(NSLocalizedString("performance_header", comment: ""))
                 }
@@ -120,7 +134,7 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(width: 500, height: 600) // Slightly increased height / 略微增加高度
+            .frame(width: 500, height: 600)
             
             Divider()
             

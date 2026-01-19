@@ -2,12 +2,11 @@
  License: AGPLv3
  Author: laobamac
  File: WallpaperEngine.swift
- Description: Manager with Strict Pause Enforcement & Input Passthrough Fix.
+ Description: Manager with FPS Limit & Post-Processing Support.
 */
 
 import Cocoa
 import AVFoundation
-import WebKit
 
 extension Notification.Name {
     static let wallpaperDidChange = Notification.Name("omw_wallpaper_did_change")
@@ -62,52 +61,26 @@ class ScreenController: NSObject {
     var isMemoryMode: Bool = false
     private var isLoading: Bool = false
     
-    // Record the last temporary lock screen wallpaper path for cleanup / 记录上一次设置的临时锁屏壁纸路径，用于清理
+    // Batch update flag to prevent multiple saves/updates
+    private var isBatchUpdating: Bool = false
+    
     private var lastLockScreenURL: URL?
     
-    var volume: Float = 0.5 {
-        didSet {
-            self.currentPlayer?.setVolume(self.volume)
-            saveSettings()
-        }
-    }
+    var volume: Float = 0.5 { didSet { if !isBatchUpdating { self.currentPlayer?.setVolume(self.volume); saveSettings() } } }
+    var playbackRate: Float = 1.0 { didSet { if !isBatchUpdating { if !WallpaperEngine.shared.isGlobalPaused && isPlaying { self.currentPlayer?.setPlaybackRate(self.playbackRate) }; saveSettings() } } }
+    var isLooping: Bool = true { didSet { if !isBatchUpdating { saveSettings() } } }
     
-    var playbackRate: Float = 1.0 {
-        didSet {
-            if !WallpaperEngine.shared.isGlobalPaused && isPlaying {
-                self.currentPlayer?.setPlaybackRate(self.playbackRate)
-            }
-            saveSettings()
-        }
-    }
+    var scaleMode: WallpaperScaleMode = .fill { didSet { if !isBatchUpdating { self.updatePlayerScaling(); saveSettings() } } }
+    var videoScale: CGFloat = 1.0 { didSet { if !isBatchUpdating { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() } } }
+    var xOffset: CGFloat = 0.0 { didSet { if !isBatchUpdating { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() } } }
+    var yOffset: CGFloat = 0.0 { didSet { if !isBatchUpdating { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() } } }
+    var rotation: Int = 0 { didSet { if !isBatchUpdating { self.updatePlayerScaling(); saveSettings() } } }
+    var backgroundColor: NSColor = .black
     
-    var isLooping: Bool = true { didSet { saveSettings() } }
-    
-    var scaleMode: WallpaperScaleMode = .fill {
-        didSet { self.updatePlayerScaling(); saveSettings() }
-    }
-    var videoScale: CGFloat = 1.0 {
-        didSet { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() }
-    }
-    var xOffset: CGFloat = 0.0 {
-        didSet { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() }
-    }
-    var yOffset: CGFloat = 0.0 {
-        didSet { if scaleMode == .custom { self.updatePlayerScaling() }; saveSettings() }
-    }
-    var rotation: Int = 0 {
-        didSet { self.updatePlayerScaling(); saveSettings() }
-    }
-    
-    var backgroundColor: NSColor = .black {
-        didSet {
-            runOnMain {
-                self.backgroundView.layer?.backgroundColor = self.backgroundColor.cgColor
-                self.currentPlayer?.setBackgroundColor(self.backgroundColor)
-            }
-            saveSettings()
-        }
-    }
+    // Post Processing State
+    var brightness: Float = 0.0 { didSet { if !isBatchUpdating { self.updatePostProcessing(); saveSettings() } } }
+    var contrast: Float = 1.0 { didSet { if !isBatchUpdating { self.updatePostProcessing(); saveSettings() } } }
+    var saturation: Float = 1.0 { didSet { if !isBatchUpdating { self.updatePostProcessing(); saveSettings() } } }
     
     init(screen: NSScreen) {
         self.screen = screen
@@ -128,7 +101,6 @@ class ScreenController: NSObject {
         newWindow.backgroundColor = .black
         newWindow.hasShadow = false
         newWindow.isOpaque = true
-        
         newWindow.ignoresMouseEvents = true
         
         backgroundView = NSView(frame: NSRect(origin: .zero, size: screenRect.size))
@@ -143,9 +115,29 @@ class ScreenController: NSObject {
     
     private func updatePlayerScaling() {
         guard !isLoading else { return }
-        runOnMain {
-            self.currentPlayer?.updateScaling(mode: self.scaleMode, scale: self.videoScale, x: self.xOffset, y: self.yOffset, rotation: self.rotation)
-        }
+        runOnMain { self.currentPlayer?.updateScaling(mode: self.scaleMode, scale: self.videoScale, x: self.xOffset, y: self.yOffset, rotation: self.rotation) }
+    }
+    
+    func updateFrameLimit(_ fps: Int) {
+        runOnMain { self.currentPlayer?.setFrameLimit(fps) }
+    }
+    
+    // Missing method fixed here
+    func setPostProcessing(brightness: Float, contrast: Float, saturation: Float) {
+        isBatchUpdating = true
+        self.brightness = brightness
+        self.contrast = contrast
+        self.saturation = saturation
+        isBatchUpdating = false
+        
+        // Trigger update and save once
+        self.updatePostProcessing()
+        self.saveSettings()
+    }
+    
+    private func updatePostProcessing() {
+        guard !isLoading else { return }
+        runOnMain { self.currentPlayer?.setPostProcessing(brightness: self.brightness, contrast: self.contrast, saturation: self.saturation) }
     }
     
     private func colorToString(_ color: NSColor) -> String {
@@ -164,34 +156,31 @@ class ScreenController: NSObject {
         let config = WallpaperConfig(
             volume: volume, playbackRate: playbackRate, scaleMode: scaleMode.rawValue, isLooping: isLooping,
             videoScale: videoScale, xOffset: xOffset, yOffset: yOffset,
-            backgroundColor: colorToString(backgroundColor), rotation: rotation
+            backgroundColor: colorToString(backgroundColor), rotation: rotation,
+            brightness: brightness, contrast: contrast, saturation: saturation
         )
         WallpaperPersistence.shared.save(config: config, monitor: screen.localizedName, wallpaperId: wId)
     }
     
     func resetSettings() {
         self.isLoading = true
+        self.isBatchUpdating = true // Suppress individual saves
         
-        self.volume = 0.5
-        self.playbackRate = 1.0
-        self.isLooping = true
-        self.scaleMode = .fill
-        self.videoScale = 1.0
-        self.xOffset = 0.0
-        self.yOffset = 0.0
-        self.rotation = 0
+        self.volume = 0.5; self.playbackRate = 1.0; self.isLooping = true
+        self.scaleMode = .fill; self.videoScale = 1.0; self.xOffset = 0.0; self.yOffset = 0.0; self.rotation = 0
         self.backgroundColor = .black
+        self.brightness = 0.0; self.contrast = 1.0; self.saturation = 1.0
+        
+        self.isBatchUpdating = false
         
         runOnMain {
             self.currentPlayer?.setVolume(0.5)
             self.currentPlayer?.setBackgroundColor(.black)
             self.currentPlayer?.updateScaling(mode: .fill, scale: 1.0, x: 0, y: 0, rotation: 0)
+            self.currentPlayer?.setPostProcessing(brightness: 0, contrast: 1, saturation: 1)
             
-            if !WallpaperEngine.shared.isGlobalPaused {
-                self.currentPlayer?.setPlaybackRate(1.0)
-            } else {
-                self.currentPlayer?.pause()
-            }
+            if !WallpaperEngine.shared.isGlobalPaused { self.currentPlayer?.setPlaybackRate(1.0) }
+            else { self.currentPlayer?.pause() }
         }
         
         self.isLoading = false
@@ -202,18 +191,15 @@ class ScreenController: NSObject {
     
     private func loadSettings(wallpaperId: String) {
         if let config = WallpaperPersistence.shared.load(monitor: screen.localizedName, wallpaperId: wallpaperId) {
-            self.volume = config.volume
-            self.playbackRate = config.playbackRate
-            self.isLooping = config.isLooping
+            self.volume = config.volume; self.playbackRate = config.playbackRate; self.isLooping = config.isLooping
             self.scaleMode = WallpaperScaleMode(rawValue: config.scaleMode) ?? .fill
-            self.videoScale = config.videoScale
-            self.xOffset = config.xOffset
-            self.yOffset = config.yOffset
-            self.backgroundColor = stringToColor(config.backgroundColor ?? "0,0,0")
-            self.rotation = config.rotation
+            self.videoScale = config.videoScale; self.xOffset = config.xOffset; self.yOffset = config.yOffset
+            self.backgroundColor = stringToColor(config.backgroundColor ?? "0,0,0"); self.rotation = config.rotation
+            self.brightness = config.brightness; self.contrast = config.contrast; self.saturation = config.saturation
         } else {
-            self.volume = 0.5; self.playbackRate = 1.0; self.scaleMode = .fill
-            self.isLooping = true; self.videoScale = 1.0; self.xOffset = 0; self.yOffset = 0; self.backgroundColor = .black; self.rotation = 0
+            self.volume = 0.5; self.playbackRate = 1.0; self.scaleMode = .fill; self.isLooping = true
+            self.videoScale = 1.0; self.xOffset = 0; self.yOffset = 0; self.backgroundColor = .black; self.rotation = 0
+            self.brightness = 0.0; self.contrast = 1.0; self.saturation = 1.0
         }
     }
     
@@ -223,38 +209,38 @@ class ScreenController: NSObject {
             if self.window == nil { self.setupWindow() }
             self._stop(keepWindow: true)
             
+            self.isBatchUpdating = true
             self.rotation = 0; self.scaleMode = .fill; self.volume = 0.5
+            self.isBatchUpdating = false
+            
             self.currentURL = url; self.currentWallpaperID = wallpaperId; self.isMemoryMode = loadToMemory; self.isPlaying = true
             
             WallpaperPersistence.shared.saveActiveWallpaper(monitor: self.screen.localizedName, wallpaperId: wallpaperId)
             self.loadSettings(wallpaperId: wallpaperId)
             
-            let ext = url.pathExtension.lowercased()
-            let player: WallpaperPlayer
-            if ["html", "htm"].contains(ext) { player = WebPlayerEngine() } else { player = VideoPlayerEngine() }
-            
+            let player = VideoPlayerEngine()
             player.attach(to: self.backgroundView)
+            
+            let fpsLimit = UserDefaults.standard.integer(forKey: "omw_fpsLimit")
+            let safeFps = fpsLimit == 0 ? 60 : fpsLimit
             
             let options = WallpaperOptions(
                 isMemoryMode: loadToMemory, isLooping: self.isLooping, volume: self.volume, playbackRate: self.playbackRate,
                 scaleMode: self.scaleMode, videoScale: self.videoScale, xOffset: self.xOffset, yOffset: self.yOffset,
-                backgroundColor: self.backgroundColor, rotation: self.rotation
+                backgroundColor: self.backgroundColor, rotation: self.rotation, fpsLimit: safeFps,
+                brightness: self.brightness, contrast: self.contrast, saturation: self.saturation
             )
             
             player.load(url: url, options: options)
             self.currentPlayer = player
             
-            if WallpaperEngine.shared.isGlobalPaused {
-                player.pause()
-            }
+            if WallpaperEngine.shared.isGlobalPaused { player.pause() }
             
             self.isLoading = false
             NotificationCenter.default.post(name: .wallpaperDidChange, object: nil, userInfo: ["monitor": self.screen.localizedName])
-            
             NotificationCenter.default.post(name: Notification.Name("omw_restore_focus"), object: nil)
             
             if UserDefaults.standard.bool(forKey: "omw_overrideLockScreen") {
-                // Delay 1.5 seconds to ensure video is ready or web page is loaded / 延迟 1.5 秒以确保视频已准备就绪或 Web 页面已加载完成
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                     guard let self = self, self.currentWallpaperID == wallpaperId else { return }
                     self.currentPlayer?.snapshot { [weak self] image in
@@ -267,30 +253,18 @@ class ScreenController: NSObject {
     }
     
     private func setSystemWallpaper(image: NSImage) {
-        // Cleanup old file / 清理旧文件
-        if let lastURL = self.lastLockScreenURL {
-            try? FileManager.default.removeItem(at: lastURL)
-        }
-        
-        // Use UUID to generate unique filename, forcing system to recognize as new wallpaper / 使用 UUID 生成唯一文件名，强制系统识别为新壁纸
+        if let lastURL = self.lastLockScreenURL { try? FileManager.default.removeItem(at: lastURL) }
         let uniqueID = UUID().uuidString
         let safeName = screen.localizedName.components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
         let filename = "omw_lock_\(safeName)_\(uniqueID).png"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
-        
         self.lastLockScreenURL = tempURL
             
-        if let tiff = image.tiffRepresentation,
-            let bitmap = NSBitmapImageRep(data: tiff),
-            let pngData = bitmap.representation(using: .png, properties: [:]) {
+        if let tiff = image.tiffRepresentation, let bitmap = NSBitmapImageRep(data: tiff), let pngData = bitmap.representation(using: .png, properties: [:]) {
             do {
                 try pngData.write(to: tempURL)
-                // Set system wallpaper / 设置系统壁纸
                 try NSWorkspace.shared.setDesktopImageURL(tempURL, for: self.screen, options: [:])
-                print("System wallpaper updated for lock screen override.")
-            } catch {
-                print("Failed to set system wallpaper: \(error)")
-            }
+            } catch { }
         }
     }
     
@@ -304,16 +278,9 @@ class ScreenController: NSObject {
         NotificationCenter.default.post(name: .wallpaperDidChange, object: nil)
     }
     
-    func pause() {
-        runOnMain { self.currentPlayer?.pause() }
-    }
+    func pause() { runOnMain { self.currentPlayer?.pause() } }
     
-    func resume() {
-        runOnMain {
-            self.currentPlayer?.resume()
-            self.currentPlayer?.setPlaybackRate(self.playbackRate)
-        }
-    }
+    func resume() { runOnMain { self.currentPlayer?.resume(); self.currentPlayer?.setPlaybackRate(self.playbackRate) } }
 }
 
 class WallpaperEngine: NSObject {
@@ -341,10 +308,7 @@ class WallpaperEngine: NSObject {
             let currentScreens = NSScreen.screens
             let currentScreenIDs = Set(currentScreens.map { $0.localizedName })
             let disconnectedIDs = self.screenControllers.keys.filter { !currentScreenIDs.contains($0) }
-            for id in disconnectedIDs {
-                self.screenControllers[id]?.stop(keepWindow: false)
-                self.screenControllers.removeValue(forKey: id)
-            }
+            for id in disconnectedIDs { self.screenControllers[id]?.stop(keepWindow: false); self.screenControllers.removeValue(forKey: id) }
             for screen in currentScreens {
                 let id = screen.localizedName
                 if self.screenControllers[id] == nil { self.screenControllers[id] = ScreenController(screen: screen) }
@@ -374,39 +338,17 @@ class WallpaperEngine: NSObject {
     
     func restoreSessions(library: WallpaperLibrary) {
             self.refreshScreens()
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                print("当前检测到的屏幕数量 / Current number of detected screens: \(self.screenControllers.count)")
-                
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 for (screenID, controller) in self.screenControllers {
-                    // Try to load last configuration / 尝试加载上次的配置
                     if let lastID = WallpaperPersistence.shared.loadActiveWallpaper(monitor: screenID) {
-                        print("正在为屏幕 \(screenID) 恢复壁纸 / Restoring wallpaper for screen \(screenID): \(lastID)")
-                        
-                        if let wallpaper = library.wallpapers.first(where: { $0.id == lastID }),
-                           let path = wallpaper.absolutePath {
-                            
+                        if let wallpaper = library.wallpapers.first(where: { $0.id == lastID }), let path = wallpaper.absolutePath {
                             let loadToMemory = UserDefaults.standard.bool(forKey: "omw_loadToMemory")
-                            
-                            // Play / 播放
                             controller.play(url: path, wallpaperId: lastID, loadToMemory: loadToMemory)
-                        } else {
-                            print("未找到壁纸文件 / Wallpaper file not found: \(lastID)")
                         }
                     }
                 }
-                
-                // Even if App starts in background, we need to run Focus Check once / 即使 App 在后台启动，我们也要运行一次 Focus Check
-                // If user has "pause when other apps are active" enabled, it will be judged correctly here / 如果用户开启了"有窗口时暂停"，这里会正确判断
                 self.checkAppFocusState()
-                
-                // If not globally paused and not system paused, force all Controllers to resume playback / 如果没有全局暂停，且不是系统暂停，强制所有 Controller 恢复播放
-                // This is a safety measure to prevent being stuck in paused state on startup / 这是一个保险措施，防止开机时被卡在 paused 状态
-                if !self.isGlobalPaused && !self.isSystemPaused {
-                    self.screenControllers.values.forEach {
-                        if $0.isPlaying { $0.resume() }
-                    }
-                }
+                if !self.isGlobalPaused && !self.isSystemPaused { self.screenControllers.values.forEach { if $0.isPlaying { $0.resume() } } }
             }
         }
     
@@ -422,6 +364,9 @@ class WallpaperEngine: NSObject {
     
     func updateSettings() {
         self.pauseOnAppFocus = UserDefaults.standard.bool(forKey: "omw_pauseOnAppFocus")
+        let newFps = UserDefaults.standard.integer(forKey: "omw_fpsLimit")
+        let safeFps = newFps == 0 ? 60 : newFps
+        self.screenControllers.values.forEach { $0.updateFrameLimit(safeFps) }
         checkAppFocusState()
     }
     
@@ -429,26 +374,14 @@ class WallpaperEngine: NSObject {
     
     private func checkAppFocusState() {
             guard pauseOnAppFocus, !isGlobalPaused else { return }
-            
             guard let app = NSWorkspace.shared.frontmostApplication else { return }
-            
             let isFinder = app.bundleIdentifier == "com.apple.finder"
             let isMe = app.bundleIdentifier == Bundle.main.bundleIdentifier
-            
             DispatchQueue.main.async {
                 if isFinder || isMe {
-                    if self.isSystemPaused {
-                        print("恢复播放 (Finder/App Active) / Resume playback (Finder/App Active)")
-                        self.isSystemPaused = false
-                        self.screenControllers.values.forEach { if $0.isPlaying { $0.resume() } }
-                    }
+                    if self.isSystemPaused { self.isSystemPaused = false; self.screenControllers.values.forEach { if $0.isPlaying { $0.resume() } } }
                 } else {
-                    // Other app in foreground, pause / 其他应用在前台，暂停
-                    if !self.isSystemPaused {
-                        print("暂停播放 (Other App Active: \(app.localizedName ?? "Unknown")) / Pause playback (Other App Active: \(app.localizedName ?? "Unknown"))")
-                        self.isSystemPaused = true
-                        self.screenControllers.values.forEach { $0.pause() }
-                    }
+                    if !self.isSystemPaused { self.isSystemPaused = true; self.screenControllers.values.forEach { $0.pause() } }
                 }
             }
         }

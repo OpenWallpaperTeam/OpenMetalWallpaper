@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: WallpaperPersistence.swift
- Description: Persistence with Clear Data Feature.
+ Description: Persistence with Post-Processing fields.
 */
 
 import Cocoa
@@ -17,6 +17,10 @@ struct WallpaperConfig: Codable {
     var yOffset: CGFloat = 0.0
     var backgroundColor: String? = "0,0,0"
     var rotation: Int = 0
+    
+    var brightness: Float = 0.0
+    var contrast: Float = 1.0
+    var saturation: Float = 1.0
 }
 
 class WallpaperPersistence {
@@ -64,8 +68,6 @@ class WallpaperPersistence {
         let dictionary = defaults.dictionaryRepresentation()
         
         dictionary.keys.forEach { key in
-            // Only clear wallpaper configurations (omw_cfg_) and active wallpaper records (omw_active_wp_) / 只清除壁纸配置 (omw_cfg_) 和活动壁纸记录 (omw_active_wp_)
-            // Keep bookmarks (omw_folder_bookmarks) and global settings (omw_loadToMemory etc.) / 保留书签 (omw_folder_bookmarks) 和全局设置 (omw_loadToMemory 等)
             if key.hasPrefix("omw_cfg_") || key.hasPrefix("omw_active_wp_") {
                 defaults.removeObject(forKey: key)
             }

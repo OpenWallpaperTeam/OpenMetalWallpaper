@@ -19,6 +19,7 @@
 "preload_video_memory" = "预加载视频到内存";
 "preload_help" = "减少磁盘IO，但增加内存占用";
 "preload_description" = "启用此选项可消除循环播放时的卡顿。";
+"frame_rate_limit" = "帧率限制";
 "automation_header" = "自动化";
 "pause_on_app_focus" = "其他应用全屏/活动时暂停";
 "override_lock_screen" = "覆盖锁屏壁纸";
@@ -81,6 +82,11 @@
 "fit_mode" = "适应 (Fit)";
 "stretch_mode" = "拉伸 (Stretch)";
 "custom_mode" = "自定义 (Custom)";
+"post_processing_header" = "后处理";
+"brightness_label" = "亮度";
+"contrast_label" = "对比度";
+"saturation_label" = "饱和度";
+"aa_notice" = "注意: 抗锯齿仅适用于 3D 场景壁纸，对视频壁纸无效。";
 
 /* Sidebar */
 "library_header" = "壁纸库";
@@ -89,7 +95,6 @@
 "no_wallpapers_found" = "没有找到壁纸";
 "drag_drop_hint" = "拖放视频文件或文件夹到此处";
 "import_now_button" = "立即导入";
-
 /* WallpaperCard */
 "unknown_source" = "未知来源";
 

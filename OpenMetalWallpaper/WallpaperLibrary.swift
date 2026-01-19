@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: WallpaperLibrary.swift
- Description: Library with Sorted Import Logic.
+ Description: Library with Fixed ID Logic & Removed Web Support.
 */
 
 import Foundation
@@ -11,7 +11,10 @@ import SwiftUI
 import AVFoundation
 
 struct WallpaperProject: Codable, Identifiable {
-    var id: String { file ?? UUID().uuidString }
+    // FIX: Use absolutePath as primary ID to avoid collision when filenames are identical (e.g. video.mp4)
+    // 修复：优先使用 absolutePath 作为 ID，避免因文件名相同（如都是 video.mp4）导致的 ID 冲突，从而解决列表显示不全的问题
+    var id: String { absolutePath?.path ?? (file ?? UUID().uuidString) }
+    
     let title: String
     let file: String?
     let type: String?
@@ -48,7 +51,10 @@ class WallpaperLibrary: ObservableObject {
         importFromFolder(url: storageURL)
     }
     
-    func importVideoFile(url: URL, title: String) {
+    // Changed to return Bool to indicate success/failure for UI feedback
+    // 改为返回 Bool 以便在 UI 上显示成功/失败提示
+    @discardableResult
+    func importVideoFile(url: URL, title: String) -> Bool {
         let safeTitle = title.isEmpty ? url.deletingPathExtension().lastPathComponent : title
         let folderName = safeTitle.components(separatedBy: CharacterSet(charactersIn: "/\\?%*|\"<>:")).joined()
         let destinationFolder = storageURL.appendingPathComponent(folderName)
@@ -62,11 +68,16 @@ class WallpaperLibrary: ObservableObject {
             if FileManager.default.fileExists(atPath: destVideoURL.path) { try FileManager.default.removeItem(at: destVideoURL) }
             try FileManager.default.copyItem(at: url, to: destVideoURL)
             generateThumbnail(videoURL: destVideoURL, destination: destThumbURL)
+            // Hardcode type to "video"
             let newProject = WallpaperProject(title: safeTitle, file: "video.\(videoExt)", type: "video", preview: "preview.jpg", description: nil, absolutePath: nil, thumbnailPath: nil)
             let jsonData = try JSONEncoder().encode(newProject)
             try jsonData.write(to: destJsonURL)
             importFromFolder(url: destinationFolder)
-        } catch { print("Import video failed: \(error)") }
+            return true
+        } catch {
+            print("Import video failed: \(error)")
+            return false
+        }
     }
     
     private func generateThumbnail(videoURL: URL, destination: URL) {
@@ -161,11 +172,11 @@ class WallpaperLibrary: ObservableObject {
             DispatchQueue.main.async {
                 // Prevent duplicate addition / 防止重复添加
                 if !self.wallpapers.contains(where: { $0.absolutePath == project.absolutePath }) {
+                    // Removed Web support: Only allow video types
+                    // 移除 Web 支持：只允许 video 类型
                     let type = project.type?.lowercased() ?? ""
-                    if type == "video" || type == "web" || type == "html" {
+                    if type == "video" {
                         self.wallpapers.append(project)
-                        // If you want to re-sort each time insertion happens (if there are many import sources) / 如果希望每次插入都重新排序（如果导入源较多）
-                        // self.wallpapers.sort { $0.title < $1.title }
                     }
                 }
             }

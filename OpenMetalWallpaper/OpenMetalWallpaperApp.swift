@@ -2,7 +2,7 @@
  License: AGPLv3
  Author: laobamac
  File: OpenMetalWallpaperApp.swift
- Description: App entry with Fixed Window Re-activation & Silent Launch Support.
+ Description: App entry with Robust Window Re-activation & Right-Click fix.
 */
 
 import SwiftUI
@@ -30,10 +30,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var statusBarItem: NSStatusItem!
     var library: WallpaperLibrary?
     weak var mainWindow: NSWindow?
-    private var isRestoringSessions = false // Prevent duplicate restoration / 防止重复恢复
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Listen for window activation to capture main window reference / 监听窗口激活，以便捕捉主窗口引用
+        // Detect main window early
         NotificationCenter.default.addObserver(self, selector: #selector(detectMainWindow(_:)), name: NSWindow.didBecomeKeyNotification, object: nil)
         
         statusBarItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -53,43 +52,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         }
         
-        // Slightly extend delay to ensure screens and system services are ready / 稍微延长延迟，确保屏幕和系统服务已就绪
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.findAndSetupMainWindow()
             
             if let lib = self.library {
-                print("开始恢复壁纸会话... / Start restoring wallpaper sessions")
+                print("Restoring sessions...")
                 WallpaperEngine.shared.restoreSessions(library: lib)
             }
             
-            // If NSApp.isActive is false, it means silent startup/login item / 如果 NSApp.isActive 为 false，说明是静默启动/开机自启
+            // Check if launched as a login item (inactive)
             if !NSApp.isActive {
-                print("检测到后台启动，隐藏主界面 / Detected background startup, hiding main window")
+                print("Silent launch detected.")
                 self.hideMainWindow()
             } else {
-                // If manually double-clicked to launch, ensure window is in front / 如果是手动双击启动，确保窗口在前
                 self.openMainWindow()
             }
         }
     }
     
-    
     func hideMainWindow() {
         if let window = self.mainWindow {
             window.orderOut(nil)
         }
-        // Only switch policy when actually hidden to prevent flickering / 只有真正隐藏了才切换策略，防止闪烁
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.setActivationPolicy(.accessory) // Hide from dock
     }
     
     @objc func openMainWindow() {
+        // Important: Switch policy back to regular to show in Dock and accept focus properly
         NSApp.setActivationPolicy(.regular)
         
         DispatchQueue.main.async {
-            // Activate App / 激活 App
             NSApp.activate(ignoringOtherApps: true)
             
-            // Try to find or reuse window / 尝试查找或复用窗口
             self.findAndSetupMainWindow()
             
             if let window = self.mainWindow {
@@ -97,33 +91,32 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 window.orderFrontRegardless()
                 window.deminiaturize(nil)
             } else {
-                print("未找到主窗口引用，尝试通过 App 激活 / Main window reference not found, trying to activate via App")
+                // Fallback: If window reference is lost (rare in SwiftUI WindowGroup), try to reactivate the App scene
+                // SwiftUI doesn't give direct access to create new windows easily from AppDelegate,
+                // but usually the window is just hidden, not destroyed.
+                print("Main window reference missing, attempting generic activation.")
             }
         }
     }
     
     func findAndSetupMainWindow() {
-        // If reference is still valid, return directly / 如果引用还在且有效，直接返回
         if let current = self.mainWindow, current.isVisible || current.occlusionState.contains(.visible) {
             return
         }
         
-        let candidates = NSApp.windows.filter { $0.styleMask.contains(.titled) && $0.identifier?.rawValue != "WallpaperWindow" }
+        // Filter windows to find the main SwiftUI window
+        let candidates = NSApp.windows.filter { $0.styleMask.contains(.titled) && $0.identifier?.rawValue != "WallpaperWindow" && !($0 is NSPanel) }
         
         if let found = candidates.first {
             self.mainWindow = found
             found.delegate = self
-            found.isReleasedWhenClosed = false // Disable release / 禁止释放
+            found.isReleasedWhenClosed = false
         }
     }
     
-    
     @objc func detectMainWindow(_ notification: Notification) {
         guard let window = notification.object as? NSWindow else { return }
-        
-        // Filter out system panels (About panel, alerts, etc.) and other non-main windows
-        // Only capture windows that are our main app window, not system dialogs
-        if window.styleMask.contains(.titled) && 
+        if window.styleMask.contains(.titled) &&
            window.identifier?.rawValue != "WallpaperWindow" &&
            !(window is NSPanel) {
             self.mainWindow = window
@@ -133,24 +126,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        // Only intercept closing for our main window, not system panels (About, alerts, etc.)
-        if sender.styleMask.contains(.titled) && 
-           sender.identifier?.rawValue != "WallpaperWindow" &&
-           !(sender is NSPanel) &&
-           sender == mainWindow {
+        if sender == mainWindow {
             self.hideMainWindow()
-            return false
+            return false // Prevent actual closing, just hide
         }
         return true
     }
     
     @objc func statusBarClicked(_ sender: NSStatusBarButton) {
-        let event = NSApp.currentEvent!
-        if event.type == .rightMouseUp {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp {
             let menu = buildMenu()
-            statusBarItem.menu = menu
-            statusBarItem.button?.performClick(nil)
-            statusBarItem.menu = nil
+            statusBarItem.menu = menu // Attach menu temporarily
+            statusBarItem.button?.performClick(nil) // Trigger menu
+            statusBarItem.menu = nil // Detach to allow left click custom action next time
         } else {
             openMainWindow()
         }

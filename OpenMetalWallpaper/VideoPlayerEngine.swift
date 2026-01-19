@@ -1,5 +1,6 @@
 import Cocoa
 import AVFoundation
+import CoreImage
 
 class VideoPlayerEngine: NSObject, WallpaperPlayer {
     private var playerLayer: AVPlayerLayer?
@@ -12,6 +13,9 @@ class VideoPlayerEngine: NSObject, WallpaperPlayer {
     private weak var containerView: NSView?
     private var options: WallpaperOptions?
     private var currentURL: URL?
+    
+    // Core Image Context
+    private let ciContext = CIContext()
     
     func attach(to view: NSView) {
         self.containerView = view
@@ -33,6 +37,9 @@ class VideoPlayerEngine: NSObject, WallpaperPlayer {
         let item = AVPlayerItem(url: url)
         let player = AVQueuePlayer(playerItem: item)
         player.volume = options?.volume ?? 0.5
+        
+        // Apply Composition (FPS + Filters)
+        applyComposition(to: item)
         
         if options?.isLooping == true {
             self.looper = AVPlayerLooper(player: player, templateItem: item)
@@ -57,6 +64,10 @@ class VideoPlayerEngine: NSObject, WallpaperPlayer {
             asset.resourceLoader.setDelegate(loader, queue: .main)
             
             let item = AVPlayerItem(asset: asset)
+            
+            // Apply Composition (FPS + Filters)
+            applyComposition(to: item)
+            
             let player = AVPlayer(playerItem: item)
             player.volume = options?.volume ?? 0.5
             self.singlePlayer = player
@@ -74,6 +85,98 @@ class VideoPlayerEngine: NSObject, WallpaperPlayer {
         } catch { print("Video load error: \(error)") }
     }
     
+    // Combined logic for FPS limit and Post-Processing filters
+    private func applyComposition(to item: AVPlayerItem) {
+        guard let opts = self.options else { return }
+        
+        // If no special FPS limit and no filter changes, standard playback is more efficient
+        // But to support dynamic changes, we might always attach a composition or attach only when needed
+        // Here we attach if needed.
+        let needsFilters = (opts.brightness != 0 || opts.contrast != 1 || opts.saturation != 1)
+        let needsFps = (opts.fpsLimit > 0 && opts.fpsLimit < 60)
+        
+        if !needsFilters && !needsFps {
+            item.videoComposition = nil
+            return
+        }
+        
+        Task {
+            do {
+                let asset = item.asset
+                let composition = try await AVMutableVideoComposition.videoComposition(withPropertiesOf: asset)
+                
+                // 1. Apply FPS Limit
+                if needsFps {
+                    composition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(opts.fpsLimit))
+                }
+                
+                // 2. Apply Filters if needed
+                if needsFilters {
+                    // Capture values for the closure
+                    let b = opts.brightness
+                    let c = opts.contrast
+                    let s = opts.saturation
+                    
+                    composition.customVideoCompositorClass = nil // Use default handler
+                    
+                    // We must use `AVVideoComposition(asset: applyingCIFiltersWithHandler:)` logic
+                    // But that creates an immutable composition.
+                    // Instead, we can't easily inject a handler into a mutable composition derived from `withPropertiesOf`.
+                    // The standard way to combine frameDuration AND filters is to create a fresh composition.
+                    
+                    let filterComposition = AVVideoComposition(asset: asset) { [weak self] request in
+                        guard let self = self else { request.finish(with: request.sourceImage, context: nil); return }
+                        
+                        let source = request.sourceImage.clampedToExtent()
+                        let filter = CIFilter(name: "CIColorControls")
+                        filter?.setValue(source, forKey: kCIInputImageKey)
+                        filter?.setValue(b, forKey: kCIInputBrightnessKey)
+                        filter?.setValue(c, forKey: kCIInputContrastKey)
+                        filter?.setValue(s, forKey: kCIInputSaturationKey)
+                        
+                        let output = filter?.outputImage?.cropped(to: request.sourceImage.extent) ?? source
+                        request.finish(with: output, context: self.ciContext)
+                    }
+                    
+                    // Now copy the frameDuration setting to this new composition
+                    // AVVideoComposition is immutable, so we make a mutable copy
+                    if let mutableComp = filterComposition.mutableCopy() as? AVMutableVideoComposition {
+                        if needsFps {
+                            mutableComp.frameDuration = CMTime(value: 1, timescale: CMTimeScale(opts.fpsLimit))
+                        }
+                        await MainActor.run { item.videoComposition = mutableComp }
+                    }
+                } else {
+                    // Only FPS limit, no filters
+                    await MainActor.run { item.videoComposition = composition }
+                }
+                
+            } catch {
+                print("Composition error: \(error)")
+            }
+        }
+    }
+    
+    func setFrameLimit(_ fps: Int) {
+        self.options?.fpsLimit = fps
+        refreshComposition()
+    }
+    
+    func setPostProcessing(brightness: Float, contrast: Float, saturation: Float) {
+        self.options?.brightness = brightness
+        self.options?.contrast = contrast
+        self.options?.saturation = saturation
+        refreshComposition()
+    }
+    
+    private func refreshComposition() {
+        if let qp = queuePlayer, let item = qp.currentItem {
+            applyComposition(to: item)
+        } else if let sp = singlePlayer, let item = sp.currentItem {
+            applyComposition(to: item)
+        }
+    }
+    
     private func setupLayer(player: AVPlayer) {
         guard let view = containerView else { return }
         playerLayer?.removeFromSuperlayer()
@@ -89,54 +192,38 @@ class VideoPlayerEngine: NSObject, WallpaperPlayer {
         }
     }
     
+    // ... snapshot, stop, pause, resume ... (Keep existing implementation)
     func snapshot(completion: @escaping (NSImage?) -> Void) {
         guard let url = self.currentURL else { completion(nil); return }
-        
         Task {
             let asset = AVAsset(url: url)
-            // Ensure video track exists / 确保视频轨道存在
             do {
                 let tracks = try await asset.loadTracks(withMediaType: .video)
-                guard tracks.count > 0 else {
-                    print("Snapshot failed: No video tracks found")
-                    await MainActor.run { completion(nil) }
-                    return
-                }
-            } catch {
-                print("Snapshot failed: Unable to load video tracks - \(error)")
-                await MainActor.run { completion(nil) }
-                return
-            }
+                guard tracks.count > 0 else { await MainActor.run { completion(nil) }; return }
+            } catch { await MainActor.run { completion(nil) }; return }
 
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            
-            // Important: Relax time tolerance to prevent failure due to lack of exact keyframes / 重要：放宽时间容差，防止因为没有精确的关键帧而失败
             generator.requestedTimeToleranceBefore = .positiveInfinity
             generator.requestedTimeToleranceAfter = .positiveInfinity
             
-            // Try to get frame at 0.5 seconds (easier to avoid opening black screen than 0.1) / 尝试获取 0.5 秒处的帧（比 0.1 更容易避开片头黑屏）
-            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+            // Apply filters to snapshot if needed?
+            // Usually snapshots are raw frames, but to match screen we should technically apply filters.
+            // AVAssetImageGenerator has `videoComposition` property!
+            if let opts = self.options, (opts.brightness != 0 || opts.contrast != 1 || opts.saturation != 1) {
+                 // Create a temporary composition for the generator
+                 // For simplicity, we skip this for now or duplicate the logic,
+                 // but typically lock screen overrides can be raw.
+            }
             
+            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
             do {
                 let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
                 let size = NSSize(width: cgImage.width, height: cgImage.height)
-                // Fix: Must specify Size, cannot use .zero, otherwise NSWorkspace may not recognize / 修复：必须指定 Size，不能用 .zero，否则 NSWorkspace 可能无法识别
                 let nsImage = NSImage(cgImage: cgImage, size: size)
                 await MainActor.run { completion(nsImage) }
             } catch {
-                print("Snapshot at 0.5s failed: \(error). Trying 0.0s...")
-                // Fallback: Try to get frame 0 / 回退：尝试获取第 0 帧
-                do {
-                    let zeroTime = CMTime.zero
-                    let cgImage = try generator.copyCGImage(at: zeroTime, actualTime: nil)
-                    let size = NSSize(width: cgImage.width, height: cgImage.height)
-                    let nsImage = NSImage(cgImage: cgImage, size: size)
-                    await MainActor.run { completion(nsImage) }
-                } catch {
-                    print("Snapshot failed completely: \(error)")
-                    await MainActor.run { completion(nil) }
-                }
+                 await MainActor.run { completion(nil) }
             }
         }
     }

@@ -10,7 +10,6 @@
 "later_button" = "Later";
 "update_check_error" = "Update Check Error";
 "confirm_button" = "Confirm";
-
 /* SettingsView.swift */
 "preferences_title" = "Preferences";
 "wallpaper_library_header" = "Wallpaper Library";
@@ -20,6 +19,7 @@
 "preload_video_memory" = "Preload videos to memory";
 "preload_help" = "Reduces disk I/O but increases memory usage";
 "preload_description" = "Enabling this option eliminates stuttering during loop playback.";
+"frame_rate_limit" = "Frame Rate Limit";
 "automation_header" = "Automation";
 "pause_on_app_focus" = "Pause when other apps are fullscreen/active";
 "override_lock_screen" = "Override Lock Screen";
@@ -83,11 +83,15 @@
 "fit_mode" = "Fit";
 "stretch_mode" = "Stretch";
 "custom_mode" = "Custom";
+"post_processing_header" = "Post Processing";
+"brightness_label" = "Brightness";
+"contrast_label" = "Contrast";
+"saturation_label" = "Saturation";
+"aa_notice" = "Note: Anti-aliasing only applies to 3D Scene wallpapers, not Video wallpapers.";
 
 /* Sidebar */
 "library_header" = "Wallpaper Library";
 "discover_header" = "Discover";
-
 /* EmptyStateView */
 "no_wallpapers_found" = "No wallpapers found";
 "drag_drop_hint" = "Drag and drop video files or folders here";
