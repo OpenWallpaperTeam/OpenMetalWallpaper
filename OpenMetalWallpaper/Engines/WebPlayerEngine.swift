@@ -21,6 +21,9 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     private var lastAudioUpdate: TimeInterval = 0
     private var isRealAudioActive: Bool = false
     
+    // MARK: - Snapshot Overlay for Fake Pause
+    private var pauseSnapshotView: NSImageView?
+    
     func attach(to view: NSView) {
         self.containerView = view
         NotificationCenter.default.addObserver(self, selector: #selector(restartAudio), name: Notification.Name("omw_audioDeviceChanged"), object: nil)
@@ -34,7 +37,17 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     func load(url: URL, options: WallpaperOptions) {
         self.currentURL = url
         self.currentOptions = options
-        stop()
+        
+        // 1. Thorough Cleanup / 彻底清理
+        // 即使 stop() 没被调用，这里也强制清理容器内的残留视图，防止非正常状态下的叠加
+        if let container = self.containerView {
+            for subview in container.subviews {
+                if subview is WKWebView || subview is NSImageView {
+                    subview.removeFromSuperview()
+                }
+            }
+        }
+        stop() // Reset internal state
         
         let config = WKWebViewConfiguration()
         config.preferences.setValue(true, forKey: "allowFileAccessFromFileURLs")
@@ -76,6 +89,16 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
         self.containerView?.addSubview(webView)
         self.webView = webView
         
+        // MARK: - Setup Pause Snapshot View
+        // 初始化一个 ImageView 用于覆盖，但不立即添加到视图，需要时再加
+        let imgView = NSImageView(frame: containerView?.bounds ?? .zero)
+        imgView.imageScaling = .scaleAxesIndependently
+        imgView.autoresizingMask = [.width, .height]
+        imgView.isHidden = true
+        self.pauseSnapshotView = imgView
+        // 预先添加到容器最上层，确保覆盖
+        self.containerView?.addSubview(imgView, positioned: .above, relativeTo: webView)
+        
         let accessURL = url.deletingLastPathComponent()
         webView.loadFileURL(url, allowingReadAccessTo: accessURL)
         
@@ -97,9 +120,9 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     
     // Safe JS Evaluation to prevent Console Spam
     private func evaluateJS(_ script: String) {
+        // 如果 webView 不在父视图中（暂停状态），evaluateJavaScript 可能无效或报错，
+        // 这里我们只在 isLoaded 且 webView 存在时调用。
         guard let webView = webView, isLoaded else { return }
-        // We do a fire-and-forget approach, but wrapped in native check
-        // Ideally we would wrap the JS in try-catch blocks too if the internal engine is flaky
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
     
@@ -126,21 +149,15 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
         audioAnalyzer = AudioSpectrumAnalyzer()
         audioAnalyzer?.onSpectrumData = { [weak self] (data, isSilence) in
             guard let self = self else { return }
-            
-            // 重要修复：
-            // 如果收到了数据（哪怕是全0的静音），也视为真实音频源正在工作。
-            // 只有当长时间没有收到回调时，才启用模拟器。
             self.lastAudioUpdate = Date().timeIntervalSince1970
             self.isRealAudioActive = true
-            
             self.sendAudioData(data)
         }
         
         let deviceID = UserDefaults.standard.string(forKey: "omw_audioDeviceID")
         audioAnalyzer?.start(deviceID: deviceID)
         
-        // Watchdog: Only run simulator if we haven't heard from Real Audio for 1 second.
-        // This prevents the simulator from fighting with BlackHole's silence.
+        // Watchdog
         audioSimulatorTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let now = Date().timeIntervalSince1970
@@ -152,7 +169,6 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     }
     
     private func runSimulatorFrame() {
-        // Only simulate if real audio is dead/permission denied
         var data = [Float](repeating: 0, count: 128)
         for i in 0..<128 {
             let base = Float(i) / 128.0
@@ -163,8 +179,10 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     }
     
     func sendAudioData(_ audioArray: [Float]) {
+        // 如果暂停中（webView被移除了），不需要发送音频数据，节省资源
+        if webView?.superview == nil { return }
+        
         let strValues = audioArray.map { String(format: "%.3f", $0) }.joined(separator: ",")
-        // Wrap in try-catch to suppress console errors if window.__audioListener is missing
         let js = "try { if(window.__audioListener) { window.__audioListener([\(strValues)]); } } catch(e) {}"
         evaluateJS(js)
     }
@@ -185,21 +203,63 @@ class WebPlayerEngine: NSObject, WallpaperPlayer, WKNavigationDelegate, WKScript
     func stop() {
         audioAnalyzer?.stop()
         audioSimulatorTimer?.invalidate()
+        
         webView?.stopLoading()
         webView?.configuration.userContentController.removeAllUserScripts()
         webView?.removeFromSuperview()
         webView = nil
+        
+        // Cleanup Overlay & Memory
+        pauseSnapshotView?.removeFromSuperview()
+        pauseSnapshotView?.image = nil // 重要：释放图片内存
+        pauseSnapshotView = nil
     }
     
     func pause() {
+        // 避免重复暂停
+        if webView?.superview == nil { return }
+        
         audioAnalyzer?.stop()
         audioSimulatorTimer?.invalidate()
+        
+        // MARK: - Fake Pause Logic (Resource Saving)
+        // Take a snapshot to freeze the visual state immediately
+        self.snapshot { [weak self] image in
+            guard let self = self, let img = image else { return }
+            
+            // Show the static image on top
+            self.pauseSnapshotView?.image = img
+            self.pauseSnapshotView?.isHidden = false
+            
+            // IMPORTANT: Remove webView from superview to STOP rendering and save resources.
+            // Removing from view hierarchy usually suspends the web process painting.
+            self.webView?.removeFromSuperview()
+        }
+        
+        // Try to pause via JS interface (optional, but good practice before removing)
         evaluateJS("try { if(window.wallpaperPropertyListener.setPaused) { window.wallpaperPropertyListener.setPaused(true); } } catch(e) {}")
     }
     
     func resume() {
+        // 如果已经运行中，忽略
+        if webView?.superview != nil { return }
+        
         startAudioSystem()
+        
+        // MARK: - Resume Logic
+        // Add webView back BELOW the snapshot
+        if let webView = self.webView, let container = self.containerView, let snapshot = self.pauseSnapshotView {
+            webView.frame = container.bounds // Ensure layout is correct
+            container.addSubview(webView, positioned: .below, relativeTo: snapshot)
+        }
+        
+        // Resume JS
         evaluateJS("try { if(window.wallpaperPropertyListener.setPaused) { window.wallpaperPropertyListener.setPaused(false); } } catch(e) {}")
+        
+        // Hide the fake pause overlay after a short delay (optional) or immediately
+        // Immediately is usually fine if the webview renders quickly.
+        self.pauseSnapshotView?.isHidden = true
+        self.pauseSnapshotView?.image = nil // Free memory immediately
     }
     
     func setVolume(_ volume: Float) {

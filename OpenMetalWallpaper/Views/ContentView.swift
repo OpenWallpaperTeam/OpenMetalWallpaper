@@ -73,13 +73,27 @@ struct ContentView: View {
                                                 applyWallpaper(wallpaper)
                                             }
                                         }
+                                        // MARK: - Context Menu Modification
                                         .contextMenu {
-                                            Button("Show in Finder") {
+                                            // Show in Finder
+                                            Button(NSLocalizedString("show_in_finder")) {
                                                 if let path = wallpaper.absolutePath { NSWorkspace.shared.activateFileViewerSelecting([path]) }
                                             }
+                                            
                                             Divider()
-                                            Button("Delete", role: .destructive) {
+                                            
+                                            // Remove from List (Keep File)
+                                            Button(NSLocalizedString("remove_from_list")) {
                                                 stopWallpaper(wallpaper.id)
+                                                // deleteFile: false
+                                                library.removeWallpaper(id: wallpaper.id, deleteFile: false)
+                                                if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil }
+                                            }
+                                            
+                                            // Delete File (Destructive)
+                                            Button(NSLocalizedString("delete_wallpaper_file"), role: .destructive) {
+                                                stopWallpaper(wallpaper.id)
+                                                // deleteFile: true
                                                 library.removeWallpaper(id: wallpaper.id, deleteFile: true)
                                                 if selectedWallpaper?.id == wallpaper.id { selectedWallpaper = nil }
                                             }
